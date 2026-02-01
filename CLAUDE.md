@@ -129,6 +129,6 @@ When a test fails, the diff shows expected vs actual output. To debug:
 
 ### Git Commit Messages
 
-- Messages should be prefixed with a lower case word indicating the change type, e.g. `fix:`, `feature:`, `refactor:`, `docs:`, etc...
+- Messages should be prefixed with a lower case word indicating the change type, e.g. `fix:`, `feature:`, `refactor:`, `docs:`, `chore:`, etc...
 - Use present tense for verbs (e.g., "add", "fix", "remove")
 - Keep messages concise but descriptive
