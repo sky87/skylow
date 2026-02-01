@@ -208,6 +208,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
+name = "libc"
+version = "0.2.180"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bcc35a38544a891a5f7c865aca548a982ccb3b8650a5b06d0fd33a10283c56fc"
+
+[[package]]
 name = "libtest-mimic"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -280,6 +286,20 @@ name = "skylow"
 version = "0.1.0"
 dependencies = [
  "bumpalo",
+ "datatest-stable",
+ "skylow-baselang",
+ "skylow-common",
+ "skylow-jit",
+ "skylow-mir",
+ "skylow-parser",
+]
+
+[[package]]
+name = "skylow-baselang"
+version = "0.1.0"
+dependencies = [
+ "bumpalo",
+ "datatest-stable",
  "skylow-common",
  "skylow-parser",
 ]
@@ -297,6 +317,26 @@ name = "skylow-common"
 version = "0.1.0"
 dependencies = [
  "bumpalo",
+]
+
+[[package]]
+name = "skylow-jit"
+version = "0.1.0"
+dependencies = [
+ "bumpalo",
+ "datatest-stable",
+ "libc",
+ "skylow-baselang",
+ "skylow-mir",
+]
+
+[[package]]
+name = "skylow-mir"
+version = "0.1.0"
+dependencies = [
+ "bumpalo",
+ "datatest-stable",
+ "skylow-baselang",
 ]
 
 [[package]]

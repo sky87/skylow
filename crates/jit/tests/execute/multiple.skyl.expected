@@ -1,0 +1,3 @@
+PASS: first passes
+PASS: second passes
+FAIL: third fails (assertion 1 failed)

@@ -1,0 +1,11 @@
+Test "first"
+  Assert
+    Cmp(Eq)
+      Int(1)
+      Int(1)
+
+Test "second"
+  Assert
+    Cmp(Eq)
+      Int(2)
+      Int(2)

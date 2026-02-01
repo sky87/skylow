@@ -33,6 +33,8 @@ pub struct CompiledRule<'a> {
     pub name: &'a str,
     pub bytecode_offset: usize,
     pub is_left_recursive: bool,
+    /// For left-recursive rules, the precedence of the operator (from @N annotation)
+    pub operator_precedence: Option<u32>,
 }
 
 /// Dispatch table for a category

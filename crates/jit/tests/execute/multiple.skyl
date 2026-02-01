@@ -1,0 +1,8 @@
+test first passes:
+  assert(1 == 1)
+
+test second passes:
+  assert(2 == 2)
+
+test third fails:
+  assert(1 == 2)

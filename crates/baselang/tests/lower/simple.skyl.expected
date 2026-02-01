@@ -1,0 +1,5 @@
+Test "simple equality"
+  Assert
+    Cmp(Eq)
+      Int(1)
+      Int(1)

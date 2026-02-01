@@ -24,6 +24,39 @@ const NODE_STRICT: &str = "_strict";
 const NODE_LAX: &str = "_lax";
 const NODE_WS: &str = "_ws";
 
+/// Get the operator precedence from a left-recursive rule.
+/// This is the precedence of the first atom after the initial CategoryRef,
+/// skipping any whitespace atoms that may have been inserted.
+fn get_rule_operator_precedence(rule: &SyntaxRule) -> Option<u32> {
+    use crate::syntax::Atom;
+
+    // For left-recursive rules, find the operator precedence by looking at
+    // the first significant atom after the initial CategoryRef (left operand).
+    // We need to skip WS atoms that may have been inserted by add_implicit_whitespace.
+    let mut found_initial_cat_ref = false;
+    for aq in rule.pattern.iter() {
+        // Skip the initial CategoryRef (left operand)
+        if !found_initial_cat_ref {
+            if matches!(aq.atom, Atom::CategoryRef(_)) {
+                found_initial_cat_ref = true;
+                continue;
+            }
+            // First element is not a CategoryRef - rule is not truly left-recursive
+            break;
+        }
+
+        // Skip whitespace atoms
+        if matches!(aq.atom, Atom::IndentAwareWs) {
+            continue;
+        }
+
+        // Found the first significant atom after the left operand
+        // Return its precedence (may be None if not annotated)
+        return aq.precedence;
+    }
+    None
+}
+
 /// Indentation constraint mode for indent-sensitive parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum IndentMode {
@@ -394,7 +427,7 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
         }
     }
 
-    fn match_atom_once(&mut self, atom: &Atom<'a>) -> Option<&'a SyntaxNode<'a>> {
+    fn match_atom_once(&mut self, atom: &Atom<'a>, min_prec: u32) -> Option<&'a SyntaxNode<'a>> {
         let start = self.current_loc();
 
         match atom {
@@ -467,7 +500,7 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
                 None
             }
 
-            Atom::CategoryRef(cat) => self.parse_category_internal(cat),
+            Atom::CategoryRef(cat) => self.parse_category_with_precedence(cat, min_prec),
 
             Atom::IndentAnchor => {
                 self.pending_anchor = true;
@@ -532,12 +565,15 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
         atom_quant: &AtomWithQuant<'a>,
         out: &mut BumpVec<'a, &'a SyntaxNode<'a>>,
     ) -> bool {
+        // For CategoryRef atoms, use the specified precedence constraint
+        let min_prec = atom_quant.precedence.unwrap_or(0);
+
         match atom_quant.quant {
             Quantifier::One => {
                 if !self.skip_ws() {
                     return false;
                 }
-                if let Some(node) = self.match_atom_once(&atom_quant.atom) {
+                if let Some(node) = self.match_atom_once(&atom_quant.atom, min_prec) {
                     out.push(node);
                     true
                 } else {
@@ -549,7 +585,7 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
                 if !self.skip_ws() {
                     return true;
                 }
-                if let Some(node) = self.match_atom_once(&atom_quant.atom) {
+                if let Some(node) = self.match_atom_once(&atom_quant.atom, min_prec) {
                     out.push(node);
                 }
                 true
@@ -561,7 +597,7 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
                 }
                 loop {
                     let cp = self.save();
-                    if let Some(node) = self.match_atom_once(&atom_quant.atom) {
+                    if let Some(node) = self.match_atom_once(&atom_quant.atom, min_prec) {
                         out.push(node);
                     } else {
                         self.restore(cp);
@@ -575,14 +611,14 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
                 if !self.skip_ws() {
                     return false;
                 }
-                if let Some(node) = self.match_atom_once(&atom_quant.atom) {
+                if let Some(node) = self.match_atom_once(&atom_quant.atom, min_prec) {
                     out.push(node);
                 } else {
                     return false;
                 }
                 loop {
                     let cp = self.save();
-                    if let Some(node) = self.match_atom_once(&atom_quant.atom) {
+                    if let Some(node) = self.match_atom_once(&atom_quant.atom, min_prec) {
                         out.push(node);
                     } else {
                         self.restore(cp);
@@ -619,11 +655,11 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
         Some(children)
     }
 
-    fn parse_category_impl(&mut self, category: &str) -> Option<&'a SyntaxNode<'a>> {
+    fn parse_category_impl(&mut self, category: &str, min_prec: u32) -> Option<&'a SyntaxNode<'a>> {
         let start = self.current_loc();
         let rules = self.rules.for_category(category);
 
-        log!(self.log, "parse {} at L{}:{}", category, start.line, start.col);
+        log!(self.log, "parse {} at L{}:{} (min_prec={})", category, start.line, start.col, min_prec);
         self.log.push_indent();
 
         let mut left: Option<&'a SyntaxNode<'a>> = None;
@@ -668,7 +704,14 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
                     continue;
                 }
 
-                log_detail!(self.log, "try left-recursive rule {}", rule.name);
+                // Check precedence constraint: only apply this infix rule if its
+                // operator precedence is >= min_prec
+                let rule_prec = get_rule_operator_precedence(rule).unwrap_or(0);
+                if rule_prec < min_prec {
+                    continue;
+                }
+
+                log_detail!(self.log, "try left-recursive rule {} (prec={})", rule.name, rule_prec);
 
                 let cp = self.save();
                 let rest_pattern = &rule.pattern[1..];
@@ -696,8 +739,12 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
         Some(left)
     }
 
+    fn parse_category_with_precedence(&mut self, category: &str, min_prec: u32) -> Option<&'a SyntaxNode<'a>> {
+        self.parse_category_impl(category, min_prec)
+    }
+
     fn parse_category_internal(&mut self, category: &str) -> Option<&'a SyntaxNode<'a>> {
-        self.parse_category_impl(category)
+        self.parse_category_impl(category, 0)
     }
 }
 

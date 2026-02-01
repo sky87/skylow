@@ -334,10 +334,14 @@ impl<'a, 'src> VM<'a, 'src> {
             }
         };
 
-        self.parse_category_by_id(category_id)
+        self.parse_category_by_id_with_prec(category_id, 0)
     }
 
-    fn parse_category_by_id(&mut self, category_id: u32) -> Option<&'a SyntaxNode<'a>> {
+    fn parse_category_by_id(&mut self, category_id: u32, min_prec: u32) -> Option<&'a SyntaxNode<'a>> {
+        self.parse_category_by_id_with_prec(category_id, min_prec)
+    }
+
+    fn parse_category_by_id_with_prec(&mut self, category_id: u32, min_prec: u32) -> Option<&'a SyntaxNode<'a>> {
         let dispatch_table = &self.grammar.dispatch_tables[category_id as usize];
         let category_name = self.grammar.category_names[category_id as usize];
         let start = self.current_loc();
@@ -432,7 +436,21 @@ impl<'a, 'src> VM<'a, 'src> {
         'outer: loop {
             for &rule_idx in &dispatch_table.infix_rules {
                 let rule = &self.grammar.rules[rule_idx];
-                log_detail!(self.log, "try left-recursive rule {}", rule.name);
+
+                // Check precedence constraint: only apply this infix rule if its
+                // operator precedence is >= min_prec
+                let rule_prec = rule.operator_precedence.unwrap_or(0);
+                if self.trace_enabled {
+                    eprintln!("[DEBUG] Pratt: trying {} (rule_prec={}, min_prec={})", rule.name, rule_prec, min_prec);
+                }
+                if rule_prec < min_prec {
+                    if self.trace_enabled {
+                        eprintln!("[DEBUG] Pratt: skipping {} due to precedence", rule.name);
+                    }
+                    continue;
+                }
+
+                log_detail!(self.log, "try left-recursive rule {} (prec={})", rule.name, rule_prec);
 
                 // Save state
                 let saved_pos = self.pos;
@@ -591,7 +609,14 @@ impl<'a, 'src> VM<'a, 'src> {
                     if !self.skip_ws() {
                         handle_failure!();
                     }
-                    if let Some(node) = self.parse_category_by_id(oper) {
+                    // Decode category_id (bits 0-15) and min_prec (bits 16-23)
+                    let category_id = oper & 0xFFFF;
+                    let min_prec = (oper >> 16) & 0xFF;
+                    if self.trace_enabled {
+                        let cat_name = self.grammar.category_names.get(category_id as usize).unwrap_or(&"?");
+                        eprintln!("[DEBUG] CALL {} with min_prec={}", cat_name, min_prec);
+                    }
+                    if let Some(node) = self.parse_category_by_id(category_id, min_prec) {
                         children.push(node);
                         pc += 1;
                     } else {

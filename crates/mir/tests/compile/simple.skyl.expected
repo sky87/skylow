@@ -1,0 +1,6 @@
+fn "simple":
+  r0 = load 1
+  r1 = load 1
+  r2 = eq r0, r1
+  assert r2, #0
+  ret

@@ -1,0 +1,2 @@
+test nested expressions:
+  assert((1 + 2) * (3 + 4) == 21)

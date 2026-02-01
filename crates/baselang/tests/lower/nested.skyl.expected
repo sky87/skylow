@@ -1,0 +1,13 @@
+Test "nested expressions"
+  Assert
+    Cmp(Eq)
+      BinOp(Mul)
+        Paren
+          BinOp(Add)
+            Int(1)
+            Int(2)
+        Paren
+          BinOp(Add)
+            Int(3)
+            Int(4)
+      Int(21)

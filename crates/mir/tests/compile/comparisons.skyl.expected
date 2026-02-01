@@ -1,0 +1,32 @@
+fn "comparisons":
+  r0 = load 1
+  r1 = load 2
+  r2 = neq r0, r1
+  r3 = load 1
+  r4 = eq r2, r3
+  assert r4, #0
+  r5 = load 1
+  r6 = load 2
+  r7 = lt r5, r6
+  r8 = load 1
+  r9 = eq r7, r8
+  assert r9, #1
+  r10 = load 2
+  r11 = load 2
+  r12 = lte r10, r11
+  r13 = load 1
+  r14 = eq r12, r13
+  assert r14, #2
+  r15 = load 3
+  r16 = load 2
+  r17 = gt r15, r16
+  r18 = load 1
+  r19 = eq r17, r18
+  assert r19, #3
+  r20 = load 3
+  r21 = load 3
+  r22 = gte r20, r21
+  r23 = load 1
+  r24 = eq r22, r23
+  assert r24, #4
+  ret

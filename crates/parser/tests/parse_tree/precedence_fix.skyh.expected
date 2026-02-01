@@ -1,0 +1,3 @@
+(Expr.eq (Expr.mul [Expr.int 3] [Expr.int 2]) [Expr.int 6])
+(Expr.eq (Expr.add [Expr.int 1] [Expr.int 2]) [Expr.int 3])
+(Expr.eq (Expr.add [Expr.int 1] (Expr.mul [Expr.int 2] [Expr.int 3])) [Expr.int 7])

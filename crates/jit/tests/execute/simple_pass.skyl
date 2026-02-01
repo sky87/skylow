@@ -1,0 +1,2 @@
+test simple passing:
+  assert(1 == 1)

@@ -871,6 +871,47 @@ struct Vec4:
   w: Float
 ```
 
+## Tests
+
+SkyLow includes built-in support for test declarations and assertions.
+
+### Test Declarations
+
+```
+test arithmetic works as expected:
+  assert(2 + 2 == 4)
+  assert(2 + 3*2 == 8)
+  assert((1 + 2) * (3 + 4) == 21)
+  assert(10 / 2 - 3 == 2)
+```
+
+A test declaration starts with `test` followed by a descriptive name (any characters except `:` and newline), then a colon and an indented body of statements.
+
+### Assertions
+
+```
+assert(expr)
+```
+
+The `assert` statement evaluates `expr` and fails the test if the result is falsy (zero). The expression is typically a comparison.
+
+### Comparison Operators
+
+| Operator | Description |
+|----------|-------------|
+| `==` | Equality comparison, returns 1 if equal, 0 otherwise |
+| `!=` | Inequality comparison, returns 1 if not equal, 0 otherwise |
+| `<` | Less than |
+| `<=` | Less than or equal |
+| `>` | Greater than |
+| `>=` | Greater than or equal |
+
+Comparison operators have lower precedence than arithmetic operators:
+
+```
+2 + 3 == 5      # parsed as (2 + 3) == 5
+```
+
 ## Example Program
 
 ```

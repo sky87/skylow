@@ -1,8 +1,10 @@
 //! SkyLow Compiler Library
 //!
-//! This library provides the high-level driver for parsing SkyLow source files.
+//! This library provides the high-level driver for parsing SkyLow source files
+//! and running tests.
 
 pub mod driver;
+pub mod runner;
 
 // Re-export parser types for convenience
 pub use skylow_parser::{
@@ -12,3 +14,6 @@ pub use skylow_parser::{
 
 // Re-export driver
 pub use driver::{Driver, ParseResult};
+
+// Re-export runner
+pub use runner::{RunResult, TestResult, TestRunner};

@@ -1,0 +1,2 @@
+test simple failing:
+  assert(1 == 2)

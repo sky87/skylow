@@ -1,5 +1,13 @@
 [workspace]
-members = ["crates/common", "crates/parser", "crates/skylow", "crates/skylow-cli"]
+members = [
+    "crates/common",
+    "crates/parser",
+    "crates/baselang",
+    "crates/mir",
+    "crates/jit",
+    "crates/skylow",
+    "crates/skylow-cli",
+]
 resolver = "2"
 
 [workspace.package]
@@ -10,8 +18,12 @@ edition = "2021"
 bumpalo = { version = "3", features = ["collections", "allocator-api2"] }
 hashbrown = { version = "0.15", features = ["allocator-api2"] }
 datatest-stable = "0.2"
+libc = "0.2"
 
 # Internal crates
 skylow-common = { path = "crates/common" }
 skylow-parser = { path = "crates/parser" }
+skylow-baselang = { path = "crates/baselang" }
+skylow-mir = { path = "crates/mir" }
+skylow-jit = { path = "crates/jit" }
 skylow = { path = "crates/skylow" }

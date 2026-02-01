@@ -1,5 +1,5 @@
 [package]
-name = "skylow"
+name = "skylow-baselang"
 version.workspace = true
 edition.workspace = true
 
@@ -7,13 +7,10 @@ edition.workspace = true
 bumpalo.workspace = true
 skylow-common.workspace = true
 skylow-parser.workspace = true
-skylow-baselang.workspace = true
-skylow-mir.workspace = true
-skylow-jit.workspace = true
 
 [dev-dependencies]
 datatest-stable.workspace = true
 
 [[test]]
-name = "runner"
+name = "lower"
 harness = false

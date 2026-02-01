@@ -1,19 +1,17 @@
 [package]
-name = "skylow"
+name = "skylow-jit"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-bumpalo.workspace = true
-skylow-common.workspace = true
-skylow-parser.workspace = true
-skylow-baselang.workspace = true
+libc.workspace = true
 skylow-mir.workspace = true
-skylow-jit.workspace = true
 
 [dev-dependencies]
+bumpalo.workspace = true
 datatest-stable.workspace = true
+skylow-baselang.workspace = true
 
 [[test]]
-name = "runner"
+name = "execute"
 harness = false

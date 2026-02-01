@@ -1,0 +1,16 @@
+# Test that precedence is respected correctly
+# Lower precedence operators should bind less tightly
+
+syntax int [0..9]+ : Expr
+syntax add Expr "+"@10 Expr@10 : Expr
+syntax mul Expr "*"@20 Expr@20 : Expr
+syntax eq Expr "=="@5 Expr@5 : Expr
+
+# 3*2 == 6 should parse as eq(mul(3,2), 6), not mul(3, eq(2,6))
+3*2 == 6
+
+# 1 + 2 == 3 should parse as eq(add(1,2), 3)
+1 + 2 == 3
+
+# Complex: 1 + 2*3 == 7 should parse as eq(add(1, mul(2,3)), 7)
+1 + 2*3 == 7

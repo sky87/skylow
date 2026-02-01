@@ -7,6 +7,37 @@ use crate::syntax::{Atom, AtomWithQuant, CharClass, Quantifier, SyntaxRule};
 use super::grammar::{CompiledGrammar, CompiledRule};
 use super::instruction::{encode, encode_signed, op, INDENT_LAX, INDENT_STRICT, SKIP_WS_INDENT};
 
+/// Get the operator precedence from a left-recursive rule.
+/// This is the precedence of the first significant atom after the initial CategoryRef,
+/// skipping any whitespace atoms that may have been inserted.
+fn get_operator_precedence(rule: &SyntaxRule) -> Option<u32> {
+    // For left-recursive rules, find the operator precedence by looking at
+    // the first significant atom after the initial CategoryRef (left operand).
+    // We need to skip WS atoms that may have been inserted by add_implicit_whitespace.
+    let mut found_initial_cat_ref = false;
+    for aq in rule.pattern.iter() {
+        // Skip the initial CategoryRef (left operand)
+        if !found_initial_cat_ref {
+            if matches!(aq.atom, Atom::CategoryRef(_)) {
+                found_initial_cat_ref = true;
+                continue;
+            }
+            // First element is not a CategoryRef - rule is not truly left-recursive
+            break;
+        }
+
+        // Skip whitespace atoms
+        if matches!(aq.atom, Atom::IndentAwareWs) {
+            continue;
+        }
+
+        // Found the first significant atom after the left operand
+        // Return its precedence (may be None if not annotated)
+        return aq.precedence;
+    }
+    None
+}
+
 /// Compile syntax rules into bytecode
 pub struct Compiler<'a> {
     grammar: CompiledGrammar<'a>,
@@ -47,12 +78,22 @@ impl<'a> Compiler<'a> {
         // Emit END instruction
         self.grammar.emit(encode(op::END, 0));
 
+        // For left-recursive rules, extract the operator precedence
+        // (the precedence of the first significant atom after the initial CategoryRef,
+        // skipping any whitespace atoms that may have been inserted)
+        let operator_precedence = if rule.is_left_recursive {
+            get_operator_precedence(rule)
+        } else {
+            None
+        };
+
         // Add rule info
         self.grammar.rules.push(CompiledRule {
             category: rule.category,
             name: rule.name,
             bytecode_offset,
             is_left_recursive: rule.is_left_recursive,
+            operator_precedence,
         });
 
         // Update dispatch table
@@ -89,9 +130,12 @@ impl<'a> Compiler<'a> {
             return;
         }
 
+        // Get the precedence constraint for CategoryRef atoms
+        let min_prec = aq.precedence.unwrap_or(0);
+
         match aq.quant {
             Quantifier::One => {
-                self.compile_atom(&aq.atom, strings);
+                self.compile_atom(&aq.atom, min_prec, strings);
             }
 
             Quantifier::Optional => {
@@ -99,7 +143,7 @@ impl<'a> Compiler<'a> {
                 // <atom>
                 // skip:
                 let choice_offset = self.grammar.emit(encode(op::CHOICE, 0));
-                self.compile_atom(&aq.atom, strings);
+                self.compile_atom(&aq.atom, min_prec, strings);
                 let skip_offset = self.grammar.current_offset();
                 self.grammar.patch_jump(choice_offset, skip_offset);
             }
@@ -112,7 +156,7 @@ impl<'a> Compiler<'a> {
                 // done:
                 let loop_offset = self.grammar.current_offset();
                 let choice_offset = self.grammar.emit(encode(op::CHOICE, 0));
-                self.compile_atom(&aq.atom, strings);
+                self.compile_atom(&aq.atom, min_prec, strings);
                 let rel_offset = (loop_offset as i32) - (self.grammar.current_offset() as i32);
                 self.grammar.emit(encode(op::JUMP, encode_signed(rel_offset)));
                 let done_offset = self.grammar.current_offset();
@@ -126,10 +170,10 @@ impl<'a> Compiler<'a> {
                 //   <atom>
                 //   JUMP loop
                 // done:
-                self.compile_atom(&aq.atom, strings);
+                self.compile_atom(&aq.atom, min_prec, strings);
                 let loop_offset = self.grammar.current_offset();
                 let choice_offset = self.grammar.emit(encode(op::CHOICE, 0));
-                self.compile_atom(&aq.atom, strings);
+                self.compile_atom(&aq.atom, min_prec, strings);
                 let rel_offset = (loop_offset as i32) - (self.grammar.current_offset() as i32);
                 self.grammar.emit(encode(op::JUMP, encode_signed(rel_offset)));
                 let done_offset = self.grammar.current_offset();
@@ -139,7 +183,7 @@ impl<'a> Compiler<'a> {
     }
 
     /// Compile a single atom
-    fn compile_atom(&mut self, atom: &Atom<'a>, strings: &mut StringInterner<'a>) {
+    fn compile_atom(&mut self, atom: &Atom<'a>, min_prec: u32, strings: &mut StringInterner<'a>) {
         match atom {
             Atom::Literal(lit) => {
                 let str_id = self.grammar.intern_string(lit);
@@ -213,7 +257,9 @@ impl<'a> Compiler<'a> {
 
             Atom::CategoryRef(cat) => {
                 let category_id = self.grammar.get_or_create_category(cat);
-                self.grammar.emit(encode(op::CALL, category_id));
+                // Encode category_id (bits 0-15) and min_prec (bits 16-23)
+                let operand = category_id | ((min_prec & 0xFF) << 16);
+                self.grammar.emit(encode(op::CALL, operand));
             }
 
             Atom::IndentAnchor => {

@@ -4,11 +4,14 @@ Rust port of the SkyHigh parser targeting a low-level language subset (no closur
 
 ## Project Structure
 
-This is a Cargo workspace with four crates:
+This is a Cargo workspace with seven crates:
 
 - **skylow-common** (`crates/common/`) - Shared utilities (debug logging, string interning)
 - **skylow-parser** (`crates/parser/`) - Core parser library with clean public API
-- **skylow** (`crates/skylow/`) - Compiler library with driver orchestration
+- **skylow-baselang** (`crates/baselang/`) - Typed AST with prelude syntax definitions
+- **skylow-mir** (`crates/mir/`) - Mid-level IR (register-based intermediate representation)
+- **skylow-jit** (`crates/jit/`) - JIT compiler targeting AArch64
+- **skylow** (`crates/skylow/`) - Compiler library with driver and test runner
 - **skylow-cli** (`crates/skylow-cli/`) - Command-line interface
 
 ## Building & Running
@@ -118,6 +121,22 @@ When a test fails, the diff shows expected vs actual output. To debug:
 3. Check if syntax rules are being registered correctly
 4. Verify indent handling for multiline patterns
 
+### File-Based Tests
+
+Each crate has its own file-based tests using `datatest-stable`:
+
+- **parser** (`crates/parser/tests/parse_tree/`) - Parser output tests (`.skyh` → `.skyh.expected`)
+- **baselang** (`crates/baselang/tests/lower/`) - AST lowering tests (`.skyl` → `.skyl.expected`)
+- **mir** (`crates/mir/tests/compile/`) - MIR compilation tests (`.skyl` → `.skyl.expected`)
+- **jit** (`crates/jit/tests/execute/`) - JIT execution tests (`.skyl` → `.skyl.expected`)
+- **skylow** (`crates/skylow/tests/e2e/`) - Full pipeline integration tests (`.skyl` → `.skyl.expected`)
+
+**Adding a new test:**
+1. Create a `.skyl` (or `.skyh`) file in the appropriate test directory
+2. Run the relevant component to see actual output
+3. Create a `.skyl.expected` (or `.skyh.expected`) file with expected output
+4. Run `cargo test -p <crate-name>` to verify
+
 ## After Completing a Task
 
 1. `cargo build` - verify no compile errors
@@ -126,6 +145,24 @@ When a test fails, the diff shows expected vs actual output. To debug:
 ## Guidelines
 
 - If something looks strange or is hard to understand, ask for clarification
+
+### Running Commands with Timeouts
+
+Always run commands with appropriate timeouts to avoid getting stuck on infinite loops. Use the `timeout` command to limit execution time:
+
+```bash
+timeout 30s cargo test                    # 30 second timeout for tests
+timeout 60s cargo run -p skylow-cli -- file.skyh  # 60 second timeout for parsing
+timeout 10s ./target/debug/skylow-cli file.skyh   # 10 second timeout for quick operations
+```
+
+This is especially important when:
+- Running newly written or modified code that may have bugs
+- Executing JIT-compiled code
+- Testing parsing of potentially malformed input
+- Any operation that could theoretically loop forever
+
+If a command times out, investigate the cause (infinite loop, deadlock, etc.) before retrying.
 
 ### Git Commit Messages
 

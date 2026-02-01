@@ -1,19 +1,15 @@
 [package]
-name = "skylow"
+name = "skylow-mir"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-bumpalo.workspace = true
-skylow-common.workspace = true
-skylow-parser.workspace = true
 skylow-baselang.workspace = true
-skylow-mir.workspace = true
-skylow-jit.workspace = true
 
 [dev-dependencies]
+bumpalo.workspace = true
 datatest-stable.workspace = true
 
 [[test]]
-name = "runner"
+name = "compile"
 harness = false

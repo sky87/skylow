@@ -1,0 +1,32 @@
+# SkyLow Prelude - Core syntax for the test runner
+#
+# This file defines the built-in syntax for:
+# - Integer literals and arithmetic
+# - Comparison operators
+# - Test infrastructure (assert, test declarations)
+
+# Integer literals
+syntax int [0..9]+ : Expr
+
+# Arithmetic operators (precedence 10 for add/sub, 20 for mul/div)
+syntax add Expr "+"@10 Expr@10 : Expr
+syntax sub Expr "-"@10 Expr@10 : Expr
+syntax mul Expr "*"@20 Expr@20 : Expr
+syntax div Expr "/"@20 Expr@20 : Expr
+
+# Parentheses (highest precedence)
+syntax paren "(" Expr ")" : Expr
+
+# Comparison operators (precedence 5, lower than arithmetic)
+syntax eq Expr "=="@5 Expr@5 : Expr
+syntax neq Expr "!="@5 Expr@5 : Expr
+syntax lt Expr "<"@5 Expr@5 : Expr
+syntax lte Expr "<="@5 Expr@5 : Expr
+syntax gt Expr ">"@5 Expr@5 : Expr
+syntax gte Expr ">="@5 Expr@5 : Expr
+
+# Test infrastructure
+syntax_category Stmt
+
+syntax assert "assert" "(" Expr ")" : Stmt
+syntax test |> "test" [^\n:]+ ":" >> Stmt+ : Stmt
