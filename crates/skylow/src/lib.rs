@@ -16,4 +16,4 @@ pub use skylow_parser::{
 pub use driver::{Driver, ParseResult};
 
 // Re-export runner
-pub use runner::{RunResult, TestResult, TestRunner};
+pub use runner::{Compiler, MainResult, MainRunner, RunResult, TestResult, TestRunner};

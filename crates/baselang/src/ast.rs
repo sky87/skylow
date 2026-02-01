@@ -70,8 +70,20 @@ pub struct TestDecl {
     pub body: Vec<Stmt>,
 }
 
-/// A complete program (collection of test declarations)
+/// Function declaration
+#[derive(Debug, Clone, PartialEq)]
+pub struct FnDecl {
+    /// Function name (e.g., "main")
+    pub name: String,
+    /// Body statements
+    pub body: Vec<Stmt>,
+    /// Source info for the function declaration (for error reporting)
+    pub info: SourceInfo,
+}
+
+/// A complete program (collection of test declarations and functions)
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Program {
     pub tests: Vec<TestDecl>,
+    pub functions: Vec<FnDecl>,
 }

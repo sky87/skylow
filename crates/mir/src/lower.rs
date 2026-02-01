@@ -8,10 +8,23 @@ use crate::ir::{AssertInfo, BinOp, CmpOp, Inst, MirFunction, MirProgram, Reg};
 pub fn lower_program(program: &Program) -> MirProgram {
     let mut mir = MirProgram::default();
 
+    // Lower test declarations
     for test in &program.tests {
         let mut func = MirFunction::new(test.name.clone());
 
         for stmt in &test.body {
+            lower_stmt(&mut func, stmt);
+        }
+
+        func.emit(Inst::Ret);
+        mir.functions.push(func);
+    }
+
+    // Lower function declarations
+    for fn_decl in &program.functions {
+        let mut func = MirFunction::new_function(fn_decl.name.clone());
+
+        for stmt in &fn_decl.body {
             lower_stmt(&mut func, stmt);
         }
 
@@ -99,6 +112,7 @@ mod tests {
                     },
                 }],
             }],
+            functions: vec![],
         };
 
         let mir = lower_program(&program);
@@ -109,5 +123,83 @@ mod tests {
         // Verify assert info is stored
         assert_eq!(mir.functions[0].asserts.len(), 1);
         assert_eq!(mir.functions[0].asserts[0].source, "1 == 1");
+    }
+
+    #[test]
+    fn test_lower_fn_decl() {
+        use skylow_baselang::{FnDecl, SourceInfo};
+        use crate::ir::FunctionKind;
+
+        let program = Program {
+            tests: vec![],
+            functions: vec![FnDecl {
+                name: "main".to_string(),
+                body: vec![Stmt::Assert {
+                    expr: Expr::Cmp {
+                        op: AstCmpOp::Eq,
+                        left: Box::new(Expr::Int(1)),
+                        right: Box::new(Expr::Int(1)),
+                    },
+                    info: SourceInfo {
+                        line: 1,
+                        col: 1,
+                        source: "1 == 1".to_string(),
+                    },
+                }],
+                info: SourceInfo {
+                    line: 1,
+                    col: 1,
+                    source: "fn main():".to_string(),
+                },
+            }],
+        };
+
+        let mir = lower_program(&program);
+        assert_eq!(mir.functions.len(), 1);
+        assert_eq!(mir.functions[0].name, "main");
+        assert_eq!(mir.functions[0].kind, FunctionKind::Function);
+        assert_eq!(mir.functions[0].instructions.len(), 5);
+    }
+
+    #[test]
+    fn test_lower_test_and_fn() {
+        use skylow_baselang::{FnDecl, SourceInfo};
+        use crate::ir::FunctionKind;
+
+        let program = Program {
+            tests: vec![TestDecl {
+                name: "test1".to_string(),
+                body: vec![Stmt::Assert {
+                    expr: Expr::Int(1),
+                    info: SourceInfo {
+                        line: 1,
+                        col: 1,
+                        source: "1".to_string(),
+                    },
+                }],
+            }],
+            functions: vec![FnDecl {
+                name: "main".to_string(),
+                body: vec![Stmt::Assert {
+                    expr: Expr::Int(1),
+                    info: SourceInfo {
+                        line: 1,
+                        col: 1,
+                        source: "1".to_string(),
+                    },
+                }],
+                info: SourceInfo {
+                    line: 1,
+                    col: 1,
+                    source: "fn main():".to_string(),
+                },
+            }],
+        };
+
+        let mir = lower_program(&program);
+        assert_eq!(mir.functions.len(), 2);
+        // Tests are lowered first
+        assert_eq!(mir.functions[0].kind, FunctionKind::Test);
+        assert_eq!(mir.functions[1].kind, FunctionKind::Function);
     }
 }

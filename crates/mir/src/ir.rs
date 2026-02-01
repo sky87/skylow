@@ -50,7 +50,16 @@ pub enum Inst {
     Ret,
 }
 
-/// A compiled MIR function (test body)
+/// Whether this MIR function is a test or a regular function
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FunctionKind {
+    /// A test function (from `test name:`)
+    Test,
+    /// A regular function (from `fn name():`)
+    Function,
+}
+
+/// A compiled MIR function (test body or function body)
 #[derive(Debug, Clone)]
 pub struct MirFunction {
     pub name: String,
@@ -58,6 +67,8 @@ pub struct MirFunction {
     pub next_reg: u32,
     /// Assertion info indexed by msg_id (0-based)
     pub asserts: Vec<AssertInfo>,
+    /// Whether this is a test or a regular function
+    pub kind: FunctionKind,
 }
 
 impl MirFunction {
@@ -67,6 +78,17 @@ impl MirFunction {
             instructions: Vec::new(),
             next_reg: 0,
             asserts: Vec::new(),
+            kind: FunctionKind::Test,
+        }
+    }
+
+    pub fn new_function(name: String) -> Self {
+        Self {
+            name,
+            instructions: Vec::new(),
+            next_reg: 0,
+            asserts: Vec::new(),
+            kind: FunctionKind::Function,
         }
     }
 

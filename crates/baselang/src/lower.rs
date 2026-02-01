@@ -5,7 +5,7 @@
 
 use skylow_parser::SyntaxNode;
 
-use crate::ast::{BinOp, CmpOp, Expr, Program, SourceInfo, Stmt, TestDecl};
+use crate::ast::{BinOp, CmpOp, Expr, FnDecl, Program, SourceInfo, Stmt, TestDecl};
 
 /// Error during lowering
 #[derive(Debug, Clone, PartialEq)]
@@ -36,15 +36,18 @@ pub fn lower_program(
     line_offset: u32,
 ) -> Result<Program, LowerError> {
     let mut tests = Vec::new();
+    let mut functions = Vec::new();
 
     for node in nodes {
         if node.rule == "test" && node.category == "Stmt" {
             tests.push(lower_test(node, source, line_offset)?);
+        } else if node.rule == "fn" && node.category == "Stmt" {
+            functions.push(lower_fn(node, source, line_offset)?);
         }
         // Ignore other top-level nodes for now
     }
 
-    Ok(Program { tests })
+    Ok(Program { tests, functions })
 }
 
 fn lower_test(
@@ -73,6 +76,43 @@ fn lower_test(
     let name: String = name_chars.concat().trim().to_string();
 
     Ok(TestDecl { name, body })
+}
+
+fn lower_fn(
+    node: &SyntaxNode<'_>,
+    source: &str,
+    line_offset: u32,
+) -> Result<FnDecl, LowerError> {
+    // Function node structure: fn |> "fn" [a-z_][a-z0-9_]* "()" ":" >> Stmt+
+    // The name is captured by the character class patterns
+
+    let mut name_chars = Vec::new();
+    let mut body = Vec::new();
+
+    for child in node.children {
+        if child.category == "Stmt" {
+            body.push(lower_stmt(child, source, line_offset)?);
+        } else if child.rule == "_charset" && child.category == "_char" {
+            // Character set captures individual chars
+            if let Some(text) = child.text {
+                name_chars.push(text);
+            }
+        }
+    }
+
+    let name: String = name_chars.concat().trim().to_string();
+
+    // Capture source info for the function declaration
+    let (start, line, col, end) = get_full_span(node);
+    let adjusted_line = line.saturating_sub(line_offset);
+    let fn_text = source.get(start..end).unwrap_or("").to_string();
+    let info = SourceInfo {
+        line: adjusted_line,
+        col,
+        source: fn_text,
+    };
+
+    Ok(FnDecl { name, body, info })
 }
 
 fn lower_stmt(
@@ -319,5 +359,48 @@ test comparisons:
 
         assert_eq!(program.tests.len(), 1);
         assert_eq!(program.tests[0].body.len(), 6);
+    }
+
+    #[test]
+    fn test_lower_fn_decl() {
+        let arena = Bump::new();
+        let source = r#"
+fn main():
+  assert(1 == 1)
+"#;
+        let result = parse_with_prelude(&arena, source);
+        assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
+
+        let combined = format!("{}\n{}", crate::PRELUDE, source);
+        let prelude_lines = crate::PRELUDE.lines().count() as u32 + 1;
+        let program = lower_program(&result.nodes, &combined, prelude_lines).expect("lowering failed");
+
+        assert_eq!(program.tests.len(), 0);
+        assert_eq!(program.functions.len(), 1);
+        assert_eq!(program.functions[0].name, "main");
+        assert_eq!(program.functions[0].body.len(), 1);
+    }
+
+    #[test]
+    fn test_lower_fn_and_test() {
+        let arena = Bump::new();
+        let source = r#"
+fn main():
+  assert(1 == 1)
+
+test simple:
+  assert(2 == 2)
+"#;
+        let result = parse_with_prelude(&arena, source);
+        assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
+
+        let combined = format!("{}\n{}", crate::PRELUDE, source);
+        let prelude_lines = crate::PRELUDE.lines().count() as u32 + 1;
+        let program = lower_program(&result.nodes, &combined, prelude_lines).expect("lowering failed");
+
+        assert_eq!(program.tests.len(), 1);
+        assert_eq!(program.tests[0].name, "simple");
+        assert_eq!(program.functions.len(), 1);
+        assert_eq!(program.functions[0].name, "main");
     }
 }

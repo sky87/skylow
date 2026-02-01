@@ -5,6 +5,7 @@ members = [
     "crates/baselang",
     "crates/mir",
     "crates/jit",
+    "crates/elf",
     "crates/skylow",
     "crates/skylow-cli",
 ]
@@ -26,4 +27,5 @@ skylow-parser = { path = "crates/parser" }
 skylow-baselang = { path = "crates/baselang" }
 skylow-mir = { path = "crates/mir" }
 skylow-jit = { path = "crates/jit" }
+skylow-elf = { path = "crates/elf" }
 skylow = { path = "crates/skylow" }

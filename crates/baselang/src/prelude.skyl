@@ -30,3 +30,7 @@ syntax_category Stmt
 
 syntax assert "assert" "(" Expr ")" : Stmt
 syntax test |> "test" [^\n:]+ ":" >> Stmt+ : Stmt
+
+# Function declarations
+# Use negated charset since positive ranges don't work well with the parser
+syntax fn |> "fn" [^ \t\n(]+ "()" ":" >> Stmt+ : Stmt

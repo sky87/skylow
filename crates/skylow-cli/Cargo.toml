@@ -10,3 +10,5 @@ path = "src/main.rs"
 [dependencies]
 bumpalo.workspace = true
 skylow.workspace = true
+skylow-baselang.workspace = true
+skylow-mir.workspace = true

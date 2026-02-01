@@ -10,6 +10,7 @@ skylow-parser.workspace = true
 skylow-baselang.workspace = true
 skylow-mir.workspace = true
 skylow-jit.workspace = true
+skylow-elf.workspace = true
 
 [dev-dependencies]
 datatest-stable.workspace = true

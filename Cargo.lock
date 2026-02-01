@@ -289,6 +289,7 @@ dependencies = [
  "datatest-stable",
  "skylow-baselang",
  "skylow-common",
+ "skylow-elf",
  "skylow-jit",
  "skylow-mir",
  "skylow-parser",
@@ -310,6 +311,8 @@ version = "0.1.0"
 dependencies = [
  "bumpalo",
  "skylow",
+ "skylow-baselang",
+ "skylow-mir",
 ]
 
 [[package]]
@@ -317,6 +320,17 @@ name = "skylow-common"
 version = "0.1.0"
 dependencies = [
  "bumpalo",
+]
+
+[[package]]
+name = "skylow-elf"
+version = "0.1.0"
+dependencies = [
+ "bumpalo",
+ "datatest-stable",
+ "skylow-baselang",
+ "skylow-jit",
+ "skylow-mir",
 ]
 
 [[package]]

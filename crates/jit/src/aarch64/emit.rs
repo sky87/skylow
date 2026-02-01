@@ -198,6 +198,115 @@ impl Emitter {
         self.emit32(0xd65f03c0);
     }
 
+    /// SVC #imm (supervisor call for syscalls)
+    pub fn svc(&mut self, imm: u16) {
+        // SVC #imm16
+        // 11010100 000 imm16 00001
+        let inst = 0xd4000001 | ((imm as u32) << 5);
+        self.emit32(inst);
+    }
+
+    /// BL offset (branch with link - function call)
+    /// Returns the position of the instruction for patching
+    pub fn bl(&mut self, offset: i32) -> usize {
+        let pos = self.code.len();
+        // BL offset
+        // 1 00101 imm26
+        let imm26 = ((offset >> 2) as u32) & 0x3ffffff;
+        let inst = 0x94000000 | imm26;
+        self.emit32(inst);
+        pos
+    }
+
+    /// B offset (unconditional branch)
+    /// Returns the position of the instruction for patching
+    pub fn b(&mut self, offset: i32) -> usize {
+        let pos = self.code.len();
+        // B offset
+        // 0 00101 imm26
+        let imm26 = ((offset >> 2) as u32) & 0x3ffffff;
+        let inst = 0x14000000 | imm26;
+        self.emit32(inst);
+        pos
+    }
+
+    /// ADRP Xd, label (load PC-relative page address)
+    /// immhi:immlo encodes the page offset
+    pub fn adrp(&mut self, rd: ArmReg, imm: i32) -> usize {
+        let pos = self.code.len();
+        // ADRP Xd, label
+        // 1 immlo[1:0] 10000 immhi[18:0] Rd
+        let page_offset = imm >> 12;
+        let immlo = (page_offset as u32) & 0x3;
+        let immhi = ((page_offset as u32) >> 2) & 0x7ffff;
+        let inst = 0x90000000 | (immlo << 29) | (immhi << 5) | (rd as u32);
+        self.emit32(inst);
+        pos
+    }
+
+    /// ADD Xd, Xn, #imm12 (add immediate)
+    pub fn add_imm(&mut self, rd: ArmReg, rn: ArmReg, imm: u16) {
+        // ADD Xd, Xn, #imm12
+        // 1 00 10001 00 imm12 Rn Rd
+        let imm12 = (imm as u32) & 0xfff;
+        let inst = 0x91000000 | (imm12 << 10) | ((rn as u32) << 5) | (rd as u32);
+        self.emit32(inst);
+    }
+
+    /// LDR Xt, [Xn, #offset] (load register with unsigned offset)
+    pub fn ldr_offset(&mut self, rt: ArmReg, rn: ArmReg, offset: u16) {
+        // LDR Xt, [Xn, #offset]
+        // 11 111 00 1 01 imm12 Rn Rt
+        // offset is scaled by 8 for 64-bit loads
+        let imm12 = ((offset / 8) as u32) & 0xfff;
+        let inst = 0xf9400000 | (imm12 << 10) | ((rn as u32) << 5) | (rt as u32);
+        self.emit32(inst);
+    }
+
+    /// STR Xt, [Xn, #offset] (store register with unsigned offset)
+    pub fn str_offset(&mut self, rt: ArmReg, rn: ArmReg, offset: u16) {
+        // STR Xt, [Xn, #offset]
+        // 11 111 00 1 00 imm12 Rn Rt
+        // offset is scaled by 8 for 64-bit stores
+        let imm12 = ((offset / 8) as u32) & 0xfff;
+        let inst = 0xf9000000 | (imm12 << 10) | ((rn as u32) << 5) | (rt as u32);
+        self.emit32(inst);
+    }
+
+    /// Patch a B/BL instruction with new target
+    pub fn patch_branch_unconditional(&mut self, pos: usize, target: usize) {
+        let offset = (target as i32 - pos as i32) >> 2;
+        let imm26 = (offset as u32) & 0x3ffffff;
+        let old_inst = u32::from_le_bytes([
+            self.code[pos],
+            self.code[pos + 1],
+            self.code[pos + 2],
+            self.code[pos + 3],
+        ]);
+        let new_inst = (old_inst & !0x3ffffff) | imm26;
+        self.code[pos..pos + 4].copy_from_slice(&new_inst.to_le_bytes());
+    }
+
+    /// Get the code bytes as a slice
+    pub fn code(&self) -> &[u8] {
+        &self.code
+    }
+
+    /// Append raw bytes to the code buffer
+    pub fn emit_bytes(&mut self, bytes: &[u8]) {
+        self.code.extend_from_slice(bytes);
+    }
+
+    /// Align code to a given boundary (power of 2)
+    pub fn align(&mut self, alignment: usize) {
+        let current = self.code.len();
+        let aligned = (current + alignment - 1) & !(alignment - 1);
+        let padding = aligned - current;
+        for _ in 0..padding {
+            self.code.push(0);
+        }
+    }
+
     /// STP Xt1, Xt2, [SP, #imm]! (pre-index store pair)
     pub fn stp_pre(&mut self, rt1: ArmReg, rt2: ArmReg, imm: i16) {
         // STP Xt1, Xt2, [SP, #imm]!
@@ -297,5 +406,84 @@ mod tests {
         assert_eq!(Cond::Ge.invert(), Cond::Lt);
         assert_eq!(Cond::Gt.invert(), Cond::Le);
         assert_eq!(Cond::Le.invert(), Cond::Gt);
+    }
+
+    #[test]
+    fn test_svc() {
+        let mut emit = Emitter::new();
+        emit.svc(0);
+        // SVC #0
+        assert_eq!(emit.len(), 4);
+    }
+
+    #[test]
+    fn test_bl() {
+        let mut emit = Emitter::new();
+        let pos = emit.bl(0);
+        assert_eq!(pos, 0);
+        assert_eq!(emit.len(), 4);
+    }
+
+    #[test]
+    fn test_b() {
+        let mut emit = Emitter::new();
+        let pos = emit.b(0);
+        assert_eq!(pos, 0);
+        assert_eq!(emit.len(), 4);
+    }
+
+    #[test]
+    fn test_adrp() {
+        let mut emit = Emitter::new();
+        let pos = emit.adrp(ArmReg::X0, 0);
+        assert_eq!(pos, 0);
+        assert_eq!(emit.len(), 4);
+    }
+
+    #[test]
+    fn test_add_imm() {
+        let mut emit = Emitter::new();
+        emit.add_imm(ArmReg::X0, ArmReg::X0, 16);
+        assert_eq!(emit.len(), 4);
+    }
+
+    #[test]
+    fn test_ldr_str_offset() {
+        let mut emit = Emitter::new();
+        emit.ldr_offset(ArmReg::X0, ArmReg::X1, 8);
+        emit.str_offset(ArmReg::X0, ArmReg::X1, 16);
+        assert_eq!(emit.len(), 8);
+    }
+
+    #[test]
+    fn test_patch_branch_unconditional() {
+        let mut emit = Emitter::new();
+        let pos = emit.b(0);
+        emit.ret(); // 4 bytes padding
+        emit.patch_branch_unconditional(pos, 8);
+        // Should have patched the branch to jump over the ret
+    }
+
+    #[test]
+    fn test_code_slice() {
+        let mut emit = Emitter::new();
+        emit.ret();
+        assert_eq!(emit.code().len(), 4);
+    }
+
+    #[test]
+    fn test_emit_bytes() {
+        let mut emit = Emitter::new();
+        emit.emit_bytes(&[1, 2, 3, 4]);
+        assert_eq!(emit.len(), 4);
+        assert_eq!(emit.code(), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_align() {
+        let mut emit = Emitter::new();
+        emit.emit_bytes(&[1, 2, 3]);
+        emit.align(8);
+        assert_eq!(emit.len(), 8);
     }
 }

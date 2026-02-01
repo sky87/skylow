@@ -227,10 +227,29 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
                     let saved_line = self.line;
                     let saved_col = self.col;
 
-                    self.advance();
-                    while let Some(' ') | Some('\t') = self.peek() {
-                        self.advance();
+                    // Skip this newline and any following blank lines
+                    loop {
+                        self.advance(); // Skip newline
+                        // Skip spaces/tabs on the new line
+                        while let Some(' ') | Some('\t') = self.peek() {
+                            self.advance();
+                        }
+                        // Skip comment if present
+                        if self.peek() == Some('#') {
+                            while let Some(c) = self.peek() {
+                                if c == '\n' {
+                                    break;
+                                }
+                                self.advance();
+                            }
+                        }
+                        // If next char is newline, this is a blank line - continue skipping
+                        if self.peek() != Some('\n') {
+                            break;
+                        }
                     }
+
+                    // Now check indent on the first non-blank line
                     if !self.indent_stack.is_empty() && !self.indent_check() {
                         self.pos = saved_pos;
                         self.line = saved_line;
