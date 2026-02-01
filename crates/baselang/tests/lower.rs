@@ -42,7 +42,7 @@ fn format_stmt(stmt: &skylow_baselang::Stmt, indent: usize) -> String {
     use skylow_baselang::Stmt;
     let pad = "  ".repeat(indent);
     match stmt {
-        Stmt::Assert(expr) => {
+        Stmt::Assert { expr, .. } => {
             format!("{}Assert\n{}", pad, format_expr(expr, indent + 1))
         }
     }
@@ -90,7 +90,8 @@ fn run_test(path: &Path) -> datatest_stable::Result<()> {
 
     // Lower to BaseLang AST
     let combined = format!("{}\n{}", PRELUDE, input);
-    let actual = match lower_program(&parse_result.nodes, &combined) {
+    let prelude_lines = PRELUDE.lines().count() as u32 + 1; // +1 for newline between prelude and source
+    let actual = match lower_program(&parse_result.nodes, &combined, prelude_lines) {
         Ok(program) => format_program(&program),
         Err(e) => format!("LOWER ERROR: {}", e),
     };

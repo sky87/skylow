@@ -105,7 +105,8 @@ fn run_test(path: &Path) -> datatest_stable::Result<()> {
 
     // Lower to BaseLang AST
     let combined = format!("{}\n{}", PRELUDE, input);
-    let ast = match lower_to_ast(&parse_result.nodes, &combined) {
+    let prelude_lines = PRELUDE.lines().count() as u32 + 1; // +1 for newline between prelude and source
+    let ast = match lower_to_ast(&parse_result.nodes, &combined, prelude_lines) {
         Ok(program) => program,
         Err(e) => {
             let actual = format!("LOWER ERROR: {}", e);

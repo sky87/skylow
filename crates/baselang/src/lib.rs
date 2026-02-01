@@ -8,7 +8,7 @@ pub mod ast;
 pub mod lower;
 mod parse;
 
-pub use ast::{BinOp, CmpOp, Expr, Program, Stmt, TestDecl};
+pub use ast::{BinOp, CmpOp, Expr, Program, SourceInfo, Stmt, TestDecl};
 pub use lower::{lower_program, LowerError};
 pub use parse::{parse_with_prelude, ParseResult};
 

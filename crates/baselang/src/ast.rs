@@ -2,6 +2,17 @@
 //!
 //! This module defines the AST types used after lowering from SyntaxNode.
 
+/// Source location information for error reporting
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourceInfo {
+    /// Line number (1-based)
+    pub line: u32,
+    /// Column number (1-based)
+    pub col: u32,
+    /// Source text of the expression
+    pub source: String,
+}
+
 /// Binary arithmetic operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinOp {
@@ -46,8 +57,8 @@ pub enum Expr {
 /// Statement AST
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
-    /// Assert statement: assert(condition)
-    Assert(Expr),
+    /// Assert statement: assert(condition) with source info for error reporting
+    Assert { expr: Expr, info: SourceInfo },
 }
 
 /// Test declaration

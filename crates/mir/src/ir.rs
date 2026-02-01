@@ -1,5 +1,16 @@
 //! MIR types - Register-based intermediate representation
 
+/// Source location information for assertion failure reporting
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssertInfo {
+    /// Line number (1-based)
+    pub line: u32,
+    /// Column number (1-based)
+    pub col: u32,
+    /// Source text of the assertion expression
+    pub source: String,
+}
+
 /// Virtual register
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Reg(pub u32);
@@ -45,6 +56,8 @@ pub struct MirFunction {
     pub name: String,
     pub instructions: Vec<Inst>,
     pub next_reg: u32,
+    /// Assertion info indexed by msg_id (0-based)
+    pub asserts: Vec<AssertInfo>,
 }
 
 impl MirFunction {
@@ -53,6 +66,7 @@ impl MirFunction {
             name,
             instructions: Vec::new(),
             next_reg: 0,
+            asserts: Vec::new(),
         }
     }
 
@@ -64,6 +78,14 @@ impl MirFunction {
 
     pub fn emit(&mut self, inst: Inst) {
         self.instructions.push(inst);
+    }
+
+    /// Add an assert instruction with source info, returns the msg_id
+    pub fn emit_assert(&mut self, cond: Reg, info: AssertInfo) -> u32 {
+        let msg_id = self.asserts.len() as u32;
+        self.asserts.push(info);
+        self.instructions.push(Inst::Assert { cond, msg_id });
+        msg_id
     }
 }
 

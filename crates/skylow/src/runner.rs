@@ -80,7 +80,9 @@ impl TestRunner {
 
         // Lower to BaseLang AST
         let combined = format!("{}\n{}", PRELUDE, source);
-        let program = match lower_program(&parse_result.nodes, &combined) {
+        // +1 for the newline between prelude and source
+        let prelude_lines = PRELUDE.lines().count() as u32 + 1;
+        let program = match lower_program(&parse_result.nodes, &combined, prelude_lines) {
             Ok(p) => p,
             Err(e) => {
                 return RunResult {
@@ -109,10 +111,20 @@ impl TestRunner {
                             failure_message: None,
                         }
                     } else {
+                        // ret is 1-based assert index (0 = success)
+                        let assert_idx = (ret - 1) as usize;
+                        let failure_message = if let Some(info) = mir_func.asserts.get(assert_idx) {
+                            format!(
+                                "assertion failed at line {}:{}\n  assert({})",
+                                info.line, info.col, info.source
+                            )
+                        } else {
+                            format!("assertion {} failed", ret)
+                        };
                         TestResult {
                             name: mir_func.name.clone(),
                             passed: false,
-                            failure_message: Some(format!("assertion {} failed", ret)),
+                            failure_message: Some(failure_message),
                         }
                     }
                 }

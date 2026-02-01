@@ -2,7 +2,7 @@
 
 use skylow_baselang::{BinOp as AstBinOp, CmpOp as AstCmpOp, Expr, Program, Stmt};
 
-use crate::ir::{BinOp, CmpOp, Inst, MirFunction, MirProgram, Reg};
+use crate::ir::{AssertInfo, BinOp, CmpOp, Inst, MirFunction, MirProgram, Reg};
 
 /// Lower a BaseLang Program to MIR
 pub fn lower_program(program: &Program) -> MirProgram {
@@ -10,10 +10,9 @@ pub fn lower_program(program: &Program) -> MirProgram {
 
     for test in &program.tests {
         let mut func = MirFunction::new(test.name.clone());
-        let mut assert_id = 0u32;
 
         for stmt in &test.body {
-            lower_stmt(&mut func, stmt, &mut assert_id);
+            lower_stmt(&mut func, stmt);
         }
 
         func.emit(Inst::Ret);
@@ -23,12 +22,17 @@ pub fn lower_program(program: &Program) -> MirProgram {
     mir
 }
 
-fn lower_stmt(func: &mut MirFunction, stmt: &Stmt, assert_id: &mut u32) {
+fn lower_stmt(func: &mut MirFunction, stmt: &Stmt) {
     match stmt {
-        Stmt::Assert(expr) => {
+        Stmt::Assert { expr, info } => {
             let cond = lower_expr(func, expr);
-            func.emit(Inst::Assert { cond, msg_id: *assert_id });
-            *assert_id += 1;
+            // Convert BaseLang SourceInfo to MIR AssertInfo
+            let assert_info = AssertInfo {
+                line: info.line,
+                col: info.col,
+                source: info.source.clone(),
+            };
+            func.emit_assert(cond, assert_info);
         }
     }
 }
@@ -75,18 +79,25 @@ fn lower_expr(func: &mut MirFunction, expr: &Expr) -> Reg {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use skylow_baselang::{Expr, Stmt, TestDecl, Program};
+    use skylow_baselang::{Expr, SourceInfo, Stmt, TestDecl, Program};
 
     #[test]
     fn test_lower_simple() {
         let program = Program {
             tests: vec![TestDecl {
                 name: "simple".to_string(),
-                body: vec![Stmt::Assert(Expr::Cmp {
-                    op: AstCmpOp::Eq,
-                    left: Box::new(Expr::Int(1)),
-                    right: Box::new(Expr::Int(1)),
-                })],
+                body: vec![Stmt::Assert {
+                    expr: Expr::Cmp {
+                        op: AstCmpOp::Eq,
+                        left: Box::new(Expr::Int(1)),
+                        right: Box::new(Expr::Int(1)),
+                    },
+                    info: SourceInfo {
+                        line: 1,
+                        col: 1,
+                        source: "1 == 1".to_string(),
+                    },
+                }],
             }],
         };
 
@@ -95,5 +106,8 @@ mod tests {
         assert_eq!(mir.functions[0].name, "simple");
         // LoadImm(1), LoadImm(1), Cmp, Assert, Ret
         assert_eq!(mir.functions[0].instructions.len(), 5);
+        // Verify assert info is stored
+        assert_eq!(mir.functions[0].asserts.len(), 1);
+        assert_eq!(mir.functions[0].asserts[0].source, "1 == 1");
     }
 }

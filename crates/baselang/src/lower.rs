@@ -5,7 +5,7 @@
 
 use skylow_parser::SyntaxNode;
 
-use crate::ast::{BinOp, CmpOp, Expr, Program, Stmt, TestDecl};
+use crate::ast::{BinOp, CmpOp, Expr, Program, SourceInfo, Stmt, TestDecl};
 
 /// Error during lowering
 #[derive(Debug, Clone, PartialEq)]
@@ -27,12 +27,19 @@ impl std::error::Error for LowerError {}
 ///
 /// The nodes should come from parsing with the BaseLang prelude,
 /// which means they'll be test declarations at the top level.
-pub fn lower_program(nodes: &[&SyntaxNode<'_>], source: &str) -> Result<Program, LowerError> {
+///
+/// `line_offset` should be the number of lines in the prelude, so that
+/// line numbers in error messages are relative to the user's source file.
+pub fn lower_program(
+    nodes: &[&SyntaxNode<'_>],
+    source: &str,
+    line_offset: u32,
+) -> Result<Program, LowerError> {
     let mut tests = Vec::new();
 
     for node in nodes {
         if node.rule == "test" && node.category == "Stmt" {
-            tests.push(lower_test(node, source)?);
+            tests.push(lower_test(node, source, line_offset)?);
         }
         // Ignore other top-level nodes for now
     }
@@ -40,7 +47,11 @@ pub fn lower_program(nodes: &[&SyntaxNode<'_>], source: &str) -> Result<Program,
     Ok(Program { tests })
 }
 
-fn lower_test(node: &SyntaxNode<'_>, source: &str) -> Result<TestDecl, LowerError> {
+fn lower_test(
+    node: &SyntaxNode<'_>,
+    source: &str,
+    line_offset: u32,
+) -> Result<TestDecl, LowerError> {
     // Test node structure: test |> "test" [^\n:]+ ":" >> Stmt+
     // The [^\n:]+ captures individual characters as _char:_charset nodes
     // We need to collect them and accumulate the name
@@ -50,7 +61,7 @@ fn lower_test(node: &SyntaxNode<'_>, source: &str) -> Result<TestDecl, LowerErro
 
     for child in node.children {
         if child.category == "Stmt" {
-            body.push(lower_stmt(child, source)?);
+            body.push(lower_stmt(child, source, line_offset)?);
         } else if child.rule == "_charset" && child.category == "_char" {
             // Character set captures individual chars
             if let Some(text) = child.text {
@@ -64,21 +75,38 @@ fn lower_test(node: &SyntaxNode<'_>, source: &str) -> Result<TestDecl, LowerErro
     Ok(TestDecl { name, body })
 }
 
-fn lower_stmt(node: &SyntaxNode<'_>, source: &str) -> Result<Stmt, LowerError> {
+fn lower_stmt(
+    node: &SyntaxNode<'_>,
+    source: &str,
+    line_offset: u32,
+) -> Result<Stmt, LowerError> {
     match node.rule {
         "assert" => {
             // assert "assert" "(" Expr ")"
             let expr_node = find_child_by_category(node, "Expr").ok_or_else(|| LowerError {
                 msg: "assert missing expression".to_string(),
-                line: node.start.line,
+                line: node.start.line.saturating_sub(line_offset),
                 col: node.start.col,
             })?;
             let expr = lower_expr(expr_node, source)?;
-            Ok(Stmt::Assert(expr))
+
+            // Capture source info for error reporting
+            // Use the full span of the expression, including nested children
+            let (start, line, col, end) = get_full_span(expr_node);
+            // Adjust line number to be relative to user's file, not combined source
+            let adjusted_line = line.saturating_sub(line_offset);
+            let expr_text = source[start..end].to_string();
+            let info = SourceInfo {
+                line: adjusted_line,
+                col,
+                source: expr_text,
+            };
+
+            Ok(Stmt::Assert { expr, info })
         }
         _ => Err(LowerError {
             msg: format!("unknown statement rule: {}", node.rule),
-            line: node.start.line,
+            line: node.start.line.saturating_sub(line_offset),
             col: node.start.col,
         }),
     }
@@ -187,6 +215,32 @@ fn get_text<'a>(node: &'a SyntaxNode<'a>, source: &'a str) -> &'a str {
     }
 }
 
+/// Get the full span of a node including all its children.
+/// Returns (start_offset, line, col, end_offset).
+/// This handles left-recursive rules where the node's start might not
+/// include the left operand.
+fn get_full_span(node: &SyntaxNode<'_>) -> (usize, u32, u32, usize) {
+    let mut start = node.start.offset as usize;
+    let mut line = node.start.line;
+    let mut col = node.start.col;
+    let mut end = node.end_offset as usize;
+
+    // Check children for earlier start or later end
+    for child in node.children {
+        let (child_start, child_line, child_col, child_end) = get_full_span(child);
+        if child_start < start {
+            start = child_start;
+            line = child_line;
+            col = child_col;
+        }
+        if child_end > end {
+            end = child_end;
+        }
+    }
+
+    (start, line, col, end)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,7 +259,8 @@ test simple:
 
         // We need access to the combined source for lowering
         let combined = format!("{}\n{}", crate::PRELUDE, source);
-        let program = lower_program(&result.nodes, &combined).expect("lowering failed");
+        let prelude_lines = crate::PRELUDE.lines().count() as u32 + 1; // +1 for newline between prelude and source
+        let program = lower_program(&result.nodes, &combined, prelude_lines).expect("lowering failed");
 
         assert_eq!(program.tests.len(), 1);
         assert_eq!(program.tests[0].name, "simple");
@@ -224,7 +279,8 @@ test arithmetic:
         assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
 
         let combined = format!("{}\n{}", crate::PRELUDE, source);
-        let program = lower_program(&result.nodes, &combined).expect("lowering failed");
+        let prelude_lines = crate::PRELUDE.lines().count() as u32 + 1; // +1 for newline between prelude and source
+        let program = lower_program(&result.nodes, &combined, prelude_lines).expect("lowering failed");
 
         assert_eq!(program.tests.len(), 1);
         assert_eq!(program.tests[0].name, "arithmetic");
@@ -258,7 +314,8 @@ test comparisons:
         assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
 
         let combined = format!("{}\n{}", crate::PRELUDE, source);
-        let program = lower_program(&result.nodes, &combined).expect("lowering failed");
+        let prelude_lines = crate::PRELUDE.lines().count() as u32 + 1; // +1 for newline between prelude and source
+        let program = lower_program(&result.nodes, &combined, prelude_lines).expect("lowering failed");
 
         assert_eq!(program.tests.len(), 1);
         assert_eq!(program.tests[0].body.len(), 6);
