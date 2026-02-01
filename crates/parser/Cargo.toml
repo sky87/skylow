@@ -1,0 +1,16 @@
+[package]
+name = "skylow-parser"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+skylow-common.workspace = true
+bumpalo.workspace = true
+hashbrown.workspace = true
+
+[dev-dependencies]
+datatest-stable.workspace = true
+
+[[test]]
+name = "parse_tree"
+harness = false

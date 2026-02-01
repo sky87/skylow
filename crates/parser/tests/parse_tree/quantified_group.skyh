@@ -1,0 +1,19 @@
+# Test quantified group whitespace handling
+# This should trigger lines 215-220 in driver.ts
+
+syntax_category Expr
+syntax_category Num
+syntax_category Word
+
+# Simple items
+syntax num [0..9]+ : Num
+syntax word [a..z]+ : Word
+
+# Rule with pattern that is a single quantified group containing multiple category refs
+# The pattern (Num Word)+ is a single group element with quantifier +
+syntax pairs (Num Word)+ : Expr
+
+# Test command
+syntax test "test" Expr
+
+test 1 a 2 b

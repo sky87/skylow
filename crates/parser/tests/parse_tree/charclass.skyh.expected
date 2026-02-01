@@ -1,0 +1,2 @@
+(Expr.dtest [Token.digits 123])
+(Expr.wtest [Token.word hello])

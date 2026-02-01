@@ -1,0 +1,7 @@
+syntax_category Arith
+syntax nat [0..9]+ : Arith
+
+# This should fail - the ")" on line 7 is at column 1, same as 'syntax'
+# So parsing stops after "(", leaving the pattern incomplete
+syntax par "("
+")"

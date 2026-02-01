@@ -1,0 +1,3 @@
+(Expr.test [Ident.identChar hello])
+(Expr.test [Ident.identChar Hello123_test])
+(Expr.test [Ident.vowels aaa])

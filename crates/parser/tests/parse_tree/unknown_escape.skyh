@@ -1,0 +1,8 @@
+# Test unknown escape sequences (fallback case)
+# \x is not a known escape, so backslash is kept literally
+syntax word [a..z]+
+syntax unknown_esc "\x"
+syntax trailing_bs "test\"
+
+\x
+test\

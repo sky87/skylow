@@ -1,0 +1,17 @@
+[workspace]
+members = ["crates/common", "crates/parser", "crates/skylow", "crates/skylow-cli"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+bumpalo = { version = "3", features = ["collections", "allocator-api2"] }
+hashbrown = { version = "0.15", features = ["allocator-api2"] }
+datatest-stable = "0.2"
+
+# Internal crates
+skylow-common = { path = "crates/common" }
+skylow-parser = { path = "crates/parser" }
+skylow = { path = "crates/skylow" }

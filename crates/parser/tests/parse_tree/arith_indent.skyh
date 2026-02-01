@@ -1,0 +1,28 @@
+syntax_category Arith
+
+syntax nat [0..9]+ : Arith                   # Natural numbers in decimal notation
+syntax add Arith "+"@10 Arith@10 : Arith     # Addition (left associative)
+syntax sub Arith "-"@10 Arith@10 : Arith     # Subtraction (left associative)
+syntax mul Arith "*"@20 Arith@20 : Arith     # Multiplication (left associative)
+syntax div Arith "/"@20 Arith@20 : Arith     # Division (left associative)
+syntax pow Arith "^"@31 Arith@31 : Arith     # Exponentiation (right associative)
+syntax neg "-" Arith@40 : Arith              # Unary negation
+syntax pos "+" Arith@50 : Arith              # Unary plus
+syntax par "(" Arith ")" : Arith             # Parentheses
+
+# >> means column must be strictly greater than the reference (column > ref)
+# > means column must be greater than or equal to the reference (column >= ref)
+syntax arith  |> "Arith" ":" >> Arith         # Strict: content must be indented past "Arith"
+syntax arithEq |> "ArithEq" ":" > Arith       # Non-strict: content can be at same column as "ArithEq"
+
+# For now all the SkyHigh compiler does is print out the parse trees for when they are not comments/ws or syntax related.
+# Strict indentation tests (>>)
+Arith: 1 + 2 * 3
+Arith: 1
+  + 2 * 3   # This is a comment in the middle of an Arith category
+Arith :
+ 1 + 2 * 3
+
+# Non-strict indentation tests (>) - content at same column as reference
+ArithEq:
+1 + 2 * 3

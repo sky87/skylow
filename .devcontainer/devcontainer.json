@@ -1,0 +1,17 @@
+{
+  "name": "Dev Container",
+  "image": "ghcr.io/sky87/skydevcontainer:latest",
+  "mounts": [
+    "source=sky-home,target=/home/sky,type=volume"
+  ],
+  "initializeCommand": "docker pull ghcr.io/sky87/skydevcontainer:latest",
+  "remoteUser": "sky",
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "oven.bun-vscode"
+      ]
+    }
+  }
+}

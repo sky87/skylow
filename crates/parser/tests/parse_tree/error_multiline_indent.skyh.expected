@@ -1,0 +1,3 @@
+error_multiline_indent.skyh:7:1: expected "syntax_category" or "syntax" or "(", found '"'
+  ")"
+  ^

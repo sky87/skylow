@@ -1,0 +1,1 @@
+(Expr.arith (Arith.add [Arith.nat 1] (Arith.mul [Arith.nat 2] [Arith.nat 3])))

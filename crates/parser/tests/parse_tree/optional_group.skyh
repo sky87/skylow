@@ -1,0 +1,20 @@
+# Test optional group whitespace handling
+# This should trigger lines 219-220 in driver.ts (optional quantifier ?)
+
+syntax_category Expr
+syntax_category Num
+syntax_category Word
+
+# Simple items
+syntax num [0..9]+ : Num
+syntax word [a..z]+ : Word
+
+# Rule with pattern that is a single optional group containing multiple category refs
+# The pattern (Num Word)? is a single group element with quantifier ?
+syntax maybe (Num Word)? : Expr
+
+# Test command
+syntax test "test" Expr
+
+test 1 a
+test

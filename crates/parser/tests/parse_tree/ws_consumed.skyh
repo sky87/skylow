@@ -1,0 +1,7 @@
+# Test whitespace being consumed between non-lexical elements
+# This should trigger lines 545-552 in parser.rs (IndentAwareWs creating _ws node)
+syntax_category Item
+syntax item [a..z]+ : Item
+syntax pair Item Item : Expr
+
+foo bar

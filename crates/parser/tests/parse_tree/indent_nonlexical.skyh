@@ -1,0 +1,14 @@
+# Test indent block with non-lexical content (category reference inside indent)
+# This should trigger line 197 in driver.ts (isLexicalPattern returning false for indent blocks)
+
+syntax_category Expr
+
+# Simple expression
+syntax num [0..9]+ : Expr
+
+# Rule with indent block containing category reference
+# The >> means indent block, and Expr is a category reference (non-lexical)
+syntax block |> "block" ":" >> Expr
+
+block:
+  42

@@ -1,0 +1,9 @@
+# Test non-quantified group (no ?, *, +) in multi-element pattern
+# This covers lines 598-606 in syntaxlang.rs
+# Pattern must be non-lexical (contain CategoryRef) for add_implicit_whitespace
+syntax_category Num
+syntax num \d+ : Num
+syntax choice "x" (Num | "n") "y" : Expr
+
+x1y
+xny

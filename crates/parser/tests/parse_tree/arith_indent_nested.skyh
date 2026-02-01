@@ -1,0 +1,53 @@
+syntax_category Arith
+
+syntax nat [0..9]+ : Arith                   # Natural numbers in decimal notation
+syntax add Arith "+"@10 Arith@10 : Arith     # Addition (left associative)
+syntax sub Arith "-"@10 Arith@10 : Arith     # Subtraction (left associative)
+syntax mul Arith "*"@20 Arith@20 : Arith     # Multiplication (left associative)
+syntax div Arith "/"@20 Arith@20 : Arith     # Division (left associative)
+syntax pow Arith "^"@31 Arith@31 : Arith     # Exponentiation (right associative)
+syntax neg "-" Arith@40 : Arith              # Unary negation
+syntax pos "+" Arith@50 : Arith              # Unary plus
+syntax par "(" Arith ")" : Arith             # Parentheses
+
+# >> means column must be strictly greater (>), > means column can be >= reference
+# Indented arith block - produces Arith so it can be nested!
+syntax block |> "do" ":" >> Arith : Arith
+syntax blockEq |> "eq" ":" > Arith : Arith    # Non-strict version
+
+# Top-level for testing (Expr category)
+syntax top |> "do" ":" >> Arith
+syntax topEq |> "eq" ":" > Arith              # Non-strict version
+
+# Simple block on one line
+do: 1
+
+# Block with multiline expression inside
+do:
+  1
+  + 2
+
+# Nested blocks on one line
+do: do: 1
+
+# Nested blocks with proper indentation
+do:
+  do:
+    1
+
+# Nested where inner closes on dedent (>>), outer gets the sum
+# Inner "do:" at col 3, "1" at col 5 is inside inner
+# "+ 2" at col 3 equals inner ref col, so closes inner (strict >>)
+# "+ 2" at col 3 > outer ref col 1, so it's added to outer's Arith
+do:
+  do:
+    1
+  + 2
+
+# Non-strict (>) - content at same column as reference is included
+# Inner "eq:" at col 3, "1" at col 5 is inside inner
+# "+ 2" at col 3 equals inner ref col but with >= it stays inside inner
+eq:
+  eq:
+    1
+  + 2

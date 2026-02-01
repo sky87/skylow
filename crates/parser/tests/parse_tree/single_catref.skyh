@@ -1,0 +1,7 @@
+# Test single CategoryRef pattern (non-lexical, non-group)
+# Covers line 556 in syntaxlang.rs
+syntax_category Base
+syntax base [a..z]+ : Base
+syntax wrap Base : Expr
+
+foo

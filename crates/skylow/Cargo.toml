@@ -1,0 +1,9 @@
+[package]
+name = "skylow"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bumpalo.workspace = true
+skylow-common.workspace = true
+skylow-parser.workspace = true

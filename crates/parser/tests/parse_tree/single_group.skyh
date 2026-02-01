@@ -1,0 +1,5 @@
+# Test single-element group pattern
+syntax num \d+ : Expr
+syntax wrapped "(" Expr ")" : Expr
+
+(42)

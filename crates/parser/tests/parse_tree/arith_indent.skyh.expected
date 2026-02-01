@@ -1,0 +1,4 @@
+(Expr.arith (Arith.add [Arith.nat 1] (Arith.mul [Arith.nat 2] [Arith.nat 3])))
+(Expr.arith (Arith.add [Arith.nat 1] (Arith.mul [Arith.nat 2] [Arith.nat 3])))
+(Expr.arith (Arith.add [Arith.nat 1] (Arith.mul [Arith.nat 2] [Arith.nat 3])))
+(Expr.arithEq (Arith.add [Arith.nat 1] (Arith.mul [Arith.nat 2] [Arith.nat 3])))

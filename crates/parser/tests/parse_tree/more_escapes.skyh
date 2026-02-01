@@ -1,0 +1,21 @@
+# Test escape sequences in string literals and charsets
+# String escapes: \] \^ \- \. (quote doesn't work since " ends strings)
+# Charset escapes: \" (bracket doesn't work since ] ends charsets)
+
+syntax word [a..z]+
+
+# Test \] \^ \- \. in string literals
+syntax bracket_lit "\]"
+syntax caret_lit "\^"
+syntax dash_lit "\-"
+syntax dot_lit "\."
+
+# Test \" in charset (quotes don't terminate charsets)
+syntax with_quote [a\"]
+
+]
+^
+-
+.
+a
+"

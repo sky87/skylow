@@ -1,0 +1,9 @@
+# Test indent-aware whitespace consumption in indent blocks
+# This should trigger lines 547-554 in parser.rs
+syntax_category Item
+syntax item [a..z]+ : Item
+syntax block |> "block" >> Item+ : Expr
+
+block
+  foo
+  bar

@@ -1,0 +1,15 @@
+syntax_category Pat
+
+# Test charClass patterns
+syntax digits \d+ : Pat
+syntax word \w+ : Pat
+syntax ws \s+ : Pat
+
+# Test groups
+syntax group "(" Pat ")" : Pat
+
+syntax pat "[Pat|" Pat "]"
+
+[Pat| hello ]
+[Pat| 123 ]
+[Pat| ( world ) ]

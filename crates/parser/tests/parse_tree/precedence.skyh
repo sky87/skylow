@@ -1,0 +1,8 @@
+# Test operator precedence propagation
+# Define mul FIRST so add is checked FIRST in the prepended list
+# This ensures line 724 (precedence filtering) is exercised
+syntax num \d+ : Expr
+syntax mul Expr "*"@20 Expr : Expr
+syntax add Expr "+"@10 Expr : Expr
+
+1 + 2 * 3

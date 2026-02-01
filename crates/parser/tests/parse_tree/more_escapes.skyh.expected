@@ -1,0 +1,6 @@
+[Expr.bracket_lit ]]
+[Expr.caret_lit ^]
+[Expr.dash_lit -]
+[Expr.dot_lit .]
+[Expr.with_quote a]
+[Expr.with_quote "]

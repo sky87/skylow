@@ -1,0 +1,9 @@
+(Expr.bool_kw [Keyword.kw_yes yes])
+(Expr.bool_kw [Keyword.kw_no no])
+(Expr.bool_kw [Keyword.kw_yes yes])
+[Expr.bool_kw maybe]
+[Expr.multi a]
+[Expr.multi b]
+[Expr.multi c]
+[Expr.tagged [foo]]
+[Expr.tagged [bar]]

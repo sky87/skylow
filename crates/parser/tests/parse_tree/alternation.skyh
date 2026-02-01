@@ -1,0 +1,27 @@
+# Test alternation with |
+syntax_category Keyword
+
+syntax kw_yes "yes" : Keyword
+syntax kw_no "no" : Keyword
+
+# Alternation: match either "yes" or "no"
+syntax choice ("yes" | "no")
+
+# Alternation with category refs
+syntax bool_kw (Keyword | "maybe")
+
+# Nested alternation
+syntax multi ("a" | "b" | "c")
+
+# Alternation in larger pattern
+syntax tagged "[" ("foo" | "bar") "]"
+
+yes
+no
+yes
+maybe
+a
+b
+c
+[foo]
+[bar]

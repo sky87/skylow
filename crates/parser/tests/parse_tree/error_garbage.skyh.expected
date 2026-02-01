@@ -1,0 +1,3 @@
+error_garbage.skyh:1:21: expected "syntax_category" or "syntax", found 'g'
+  syntax_category Foo garbage
+                      ^

@@ -1,0 +1,6 @@
+(Expr.top [Arith.nat 1])
+(Expr.top (Arith.add [Arith.nat 1] [Arith.nat 2]))
+(Expr.top (Arith.block [Arith.nat 1]))
+(Expr.top (Arith.block [Arith.nat 1]))
+(Expr.top (Arith.add (Arith.block [Arith.nat 1]) [Arith.nat 2]))
+(Expr.topEq (Arith.blockEq (Arith.add [Arith.nat 1] [Arith.nat 2])))

@@ -1,0 +1,3 @@
+(Expr.pat [Pat.word hello])
+(Expr.pat [Pat.word 123])
+(Expr.pat (Pat.group [Pat.word world]))

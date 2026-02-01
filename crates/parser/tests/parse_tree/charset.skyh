@@ -1,0 +1,18 @@
+# Test combined character sets
+
+syntax_category Ident
+
+# Single range (backward compatible)
+syntax lower [a..z]+ : Ident
+
+# Combined ranges
+syntax identChar [a..zA..Z0..9_]+ : Ident
+
+# Individual chars only
+syntax vowels [aeiou]+ : Ident
+
+syntax test "[Ident|" Ident "]"
+
+[Ident| hello ]
+[Ident| Hello123_test ]
+[Ident| aaa ]

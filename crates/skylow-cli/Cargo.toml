@@ -1,0 +1,12 @@
+[package]
+name = "skylow-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "skylow"
+path = "src/main.rs"
+
+[dependencies]
+bumpalo.workspace = true
+skylow.workspace = true

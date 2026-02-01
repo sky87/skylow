@@ -1,0 +1,4 @@
+[alias]
+cov = "llvm-cov --ignore-filename-regex (debug|main).rs"
+cov-html = "llvm-cov --html --ignore-filename-regex (debug|main).rs"
+cov-lcov = "llvm-cov --lcov --output-path lcov.info --ignore-filename-regex (debug|main).rs"

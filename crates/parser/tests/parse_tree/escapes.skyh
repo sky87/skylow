@@ -1,0 +1,6 @@
+syntax word [^ \n\r\t]+
+syntax tab "\t"
+syntax backslash "\\"
+
+hello
+\

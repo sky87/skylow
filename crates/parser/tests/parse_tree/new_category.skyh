@@ -1,0 +1,6 @@
+# Test using a custom category in a rule
+# Categories are implicitly created when first used in a rule
+syntax num \d+ : Num
+syntax addNums Num "+" Num : Expr
+
+1 + 2

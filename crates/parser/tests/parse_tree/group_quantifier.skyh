@@ -1,0 +1,5 @@
+# Test groups with +/* quantifiers in grammar patterns
+syntax num \d+ : Expr
+syntax list "[" (Expr ",")* Expr "]" : Expr
+
+[1, 2, 3]

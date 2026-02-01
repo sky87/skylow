@@ -1,0 +1,27 @@
+syntax_category Arith
+
+# Single line syntax (should work)
+syntax nat [0..9]+ : Arith
+
+# Multi-line syntax with indented continuation
+syntax add Arith "+"@10
+    Arith@10 : Arith
+
+# Pattern can span multiple lines with each line indented
+syntax mul Arith
+    "*"@20
+    Arith@20
+    : Arith
+
+# Deep indentation is fine
+syntax par "("
+        Arith
+            ")"
+                : Arith
+
+# The wrapper rule to test
+syntax arith "[Arith|" Arith "]"
+
+# Test expressions
+[Arith| 1 + 2 * 3 ]
+[Arith| (1 + 2) * 3 ]

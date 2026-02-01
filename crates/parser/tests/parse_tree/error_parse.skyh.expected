@@ -1,0 +1,3 @@
+error_parse.skyh:1:1: expected "syntax_category" or "syntax", found '@'
+  @@@invalid
+  ^

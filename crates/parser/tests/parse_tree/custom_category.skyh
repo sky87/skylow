@@ -1,0 +1,8 @@
+# Test custom category - used inside rules, not at top level
+# Categories are implicitly created when first used
+syntax plus "+" : Op
+syntax minus "-" : Op
+syntax num \d+ : Expr
+syntax binop Expr Op Expr : Expr
+
+1 + 2

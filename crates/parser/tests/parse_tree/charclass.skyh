@@ -1,0 +1,16 @@
+# Test character classes \d, \w, \s
+
+syntax_category Token
+
+# Digit character class
+syntax digits \d+ : Token
+
+# Word character class
+syntax word [a..z]+ : Token
+
+# Test with different brackets to distinguish
+syntax dtest "d[" Token "]"
+syntax wtest "w[" Token "]"
+
+d[ 123 ]
+w[ hello ]
