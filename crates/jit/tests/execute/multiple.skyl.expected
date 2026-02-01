@@ -1,3 +1,4 @@
 PASS: first passes
 PASS: second passes
-FAIL: third fails (assertion 1 failed)
+FAIL: third fails - assertion failed at line 8:10
+  assert(1 == 2)

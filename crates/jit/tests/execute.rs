@@ -67,7 +67,17 @@ fn run_test(path: &Path) -> datatest_stable::Result<()> {
                 if ret == 0 {
                     results.push(format!("PASS: {}", func.name));
                 } else {
-                    results.push(format!("FAIL: {} (assertion {} failed)", func.name, ret));
+                    // ret is 1-based assert index (0 = success)
+                    let assert_idx = (ret - 1) as usize;
+                    let failure_message = if let Some(info) = func.asserts.get(assert_idx) {
+                        format!(
+                            "FAIL: {} - assertion failed at line {}:{}\n  assert({})",
+                            func.name, info.line, info.col, info.source
+                        )
+                    } else {
+                        format!("FAIL: {} (assertion {} failed)", func.name, ret)
+                    };
+                    results.push(failure_message);
                 }
             }
             Err(e) => {

@@ -1,1 +1,2 @@
-FAIL: second assert fails (assertion 2 failed)
+FAIL: second assert fails - assertion failed at line 3:10
+  assert(2 == 3)

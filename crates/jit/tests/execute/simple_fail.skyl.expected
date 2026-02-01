@@ -1,1 +1,2 @@
-FAIL: simple failing (assertion 1 failed)
+FAIL: simple failing - assertion failed at line 2:10
+  assert(1 == 2)
