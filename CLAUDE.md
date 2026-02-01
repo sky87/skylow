@@ -16,8 +16,8 @@ This is a Cargo workspace with four crates:
 ```bash
 cargo build                              # debug build
 cargo build --release                    # release build
-cargo run -p skylow-cli -- file.skyh     # parse a file
-cargo run -p skylow-cli -- --vm file.skyh # parse with VM
+cargo run -p skylow-cli -- file.skyh     # parse a file (uses VM by default)
+cargo run -p skylow-cli -- --parser-interp file.skyh  # use interpreted parser
 cargo test                               # run tests
 ```
 
@@ -121,8 +121,14 @@ When a test fails, the diff shows expected vs actual output. To debug:
 ## After Completing a Task
 
 1. `cargo build` - verify no compile errors
-2. `cargo cov` - verify tests pass with 100% function coverage and 95%+ line coverage per file (see Coverage Exceptions for allowed deviations)
+2. `cargo cov` - verify tests pass with 100% function coverage and 95%+ line coverage per file
 
 ## Guidelines
 
 - If something looks strange or is hard to understand, ask for clarification
+
+### Git Commit Messages
+
+- Messages should be prefixed with a lower case word indicating the change type, e.g. `fix:`, `feature:`, `refactor:`, `docs:`, etc...
+- Use present tense for verbs (e.g., "add", "fix", "remove")
+- Keep messages concise but descriptive
