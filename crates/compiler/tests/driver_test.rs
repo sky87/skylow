@@ -1,7 +1,7 @@
 //! Tests for Driver
 
 use bumpalo::Bump;
-use skylow::{format_node, syntax_node_to_string, Driver};
+use compiler::{format_node, syntax_node_to_string, Driver};
 
 #[test]
 fn test_driver_basic() {

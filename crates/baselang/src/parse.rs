@@ -4,9 +4,9 @@
 //! the BaseLang prelude syntax before parsing user code.
 
 use bumpalo::Bump;
-use skylow_common::StringInterner;
-use skylow_parser::constants::{CAT_EXPR, CAT_IDENT, CAT_SYNTAX_DECL, RULE_SYNTAX_CATEGORY, RULE_SYNTAX_DECL};
-use skylow_parser::{
+use common::StringInterner;
+use parser::constants::{CAT_EXPR, CAT_IDENT, CAT_SYNTAX_DECL, RULE_SYNTAX_CATEGORY, RULE_SYNTAX_DECL};
+use parser::{
     add_expr_rule, add_syntax_decl_command_rule, extract_and_register_rule,
     get_child_by_category, get_node_text, init_syntaxlang, ParseError, Parser, SyntaxNode,
     VMParser,

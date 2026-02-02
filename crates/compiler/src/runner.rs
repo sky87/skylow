@@ -3,9 +3,9 @@
 //! Orchestrates the full pipeline: parse -> lower to BaseLang -> lower to MIR -> JIT compile -> execute.
 
 use bumpalo::Bump;
-use skylow_baselang::{lower_program, parse_with_prelude, Program, PRELUDE};
-use skylow_jit::{compile_function, ExecutableMemory};
-use skylow_mir::lower_program as lower_to_mir;
+use baselang::{lower_program, parse_with_prelude, Program, PRELUDE};
+use jit::{compile_function, ExecutableMemory};
+use mir::lower_program as lower_to_mir;
 
 /// Result of running a single test
 #[derive(Debug, Clone)]
@@ -334,7 +334,7 @@ impl Compiler {
         let mir_func = &mir_program.functions[0];
 
         // Generate ELF
-        Ok(skylow_elf::generate_elf(mir_func, filename))
+        Ok(elf::generate_elf(mir_func, filename))
     }
 }
 

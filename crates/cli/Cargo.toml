@@ -1,5 +1,5 @@
 [package]
-name = "skylow-cli"
+name = "cli"
 version.workspace = true
 edition.workspace = true
 
@@ -9,6 +9,6 @@ path = "src/main.rs"
 
 [dependencies]
 bumpalo.workspace = true
-skylow.workspace = true
-skylow-baselang.workspace = true
-skylow-mir.workspace = true
+compiler.workspace = true
+baselang.workspace = true
+mir.workspace = true

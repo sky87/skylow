@@ -4,12 +4,12 @@
 
 use bumpalo::Bump;
 use datatest_stable::harness;
-use skylow_baselang::{lower_program as lower_to_ast, parse_with_prelude, PRELUDE};
-use skylow_mir::{lower_program, BinOp, CmpOp, Inst, MirFunction};
+use baselang::{lower_program as lower_to_ast, parse_with_prelude, PRELUDE};
+use mir::{lower_program, BinOp, CmpOp, Inst, MirFunction};
 use std::path::Path;
 
 /// Format a register
-fn format_reg(r: skylow_mir::Reg) -> String {
+fn format_reg(r: mir::Reg) -> String {
     format!("r{}", r.0)
 }
 
@@ -68,7 +68,7 @@ fn format_function(func: &MirFunction) -> String {
 }
 
 /// Format a MIR program
-fn format_program(program: &skylow_mir::MirProgram) -> String {
+fn format_program(program: &mir::MirProgram) -> String {
     program
         .functions
         .iter()

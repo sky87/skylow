@@ -65,8 +65,8 @@ mod syntax;
 mod syntaxlang;
 
 // Re-export from skylow-common
-pub use skylow_common::{debug, intern};
-pub use skylow_common::{create_logger, Logger};
+pub use common::{debug, intern};
+pub use common::{create_logger, Logger};
 
 // Re-export public types
 pub use format::{format_errors, format_node, syntax_node_to_string};

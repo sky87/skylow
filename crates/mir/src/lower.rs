@@ -1,6 +1,6 @@
 //! Lowering from BaseLang AST to MIR
 
-use skylow_baselang::{BinOp as AstBinOp, CmpOp as AstCmpOp, Expr, Program, Stmt};
+use baselang::{BinOp as AstBinOp, CmpOp as AstCmpOp, Expr, Program, Stmt};
 
 use crate::ir::{AssertInfo, BinOp, CmpOp, Inst, MirFunction, MirProgram, Reg};
 
@@ -92,7 +92,7 @@ fn lower_expr(func: &mut MirFunction, expr: &Expr) -> Reg {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use skylow_baselang::{Expr, SourceInfo, Stmt, TestDecl, Program};
+    use baselang::{Expr, SourceInfo, Stmt, TestDecl, Program};
 
     #[test]
     fn test_lower_simple() {
@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn test_lower_fn_decl() {
-        use skylow_baselang::{FnDecl, SourceInfo};
+        use baselang::{FnDecl, SourceInfo};
         use crate::ir::FunctionKind;
 
         let program = Program {
@@ -163,7 +163,7 @@ mod tests {
 
     #[test]
     fn test_lower_test_and_fn() {
-        use skylow_baselang::{FnDecl, SourceInfo};
+        use baselang::{FnDecl, SourceInfo};
         use crate::ir::FunctionKind;
 
         let program = Program {

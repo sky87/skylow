@@ -1,16 +1,16 @@
 [package]
-name = "skylow-elf"
+name = "elf"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-skylow-mir = { path = "../mir" }
-skylow-jit = { path = "../jit" }
+mir.workspace = true
+jit.workspace = true
 
 [dev-dependencies]
 bumpalo.workspace = true
 datatest-stable.workspace = true
-skylow-baselang = { path = "../baselang" }
+baselang.workspace = true
 
 [[test]]
 name = "compile"

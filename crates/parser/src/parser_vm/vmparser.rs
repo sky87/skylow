@@ -1,8 +1,8 @@
 //! VMParser: Drop-in replacement for InterpretedParser using the VM.
 
 use bumpalo::Bump;
-use skylow_common::debug::{create_logger, Logger};
-use skylow_common::intern::StringInterner;
+use common::debug::{create_logger, Logger};
+use common::intern::StringInterner;
 
 use crate::node::{ParseError, SourceLoc, SyntaxNode};
 use crate::parser_trait::Parser;

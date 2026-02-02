@@ -2,9 +2,9 @@
 
 use bumpalo::Bump;
 use datatest_stable::harness;
-use skylow_common::StringInterner;
-use skylow_parser::constants::{CAT_EXPR, CAT_SYNTAX_DECL, RULE_SYNTAX_CATEGORY, RULE_SYNTAX_DECL};
-use skylow_parser::{
+use common::StringInterner;
+use parser::constants::{CAT_EXPR, CAT_SYNTAX_DECL, RULE_SYNTAX_CATEGORY, RULE_SYNTAX_DECL};
+use parser::{
     add_expr_rule, add_syntax_decl_command_rule, extract_and_register_rule, format_errors,
     format_node, get_child_by_category, init_syntaxlang, syntax_node_to_string, CompiledGrammar,
     InterpretedParser, ParseError, Parser, SyntaxNode, VMParser,

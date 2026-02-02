@@ -4,23 +4,24 @@ Rust port of the SkyHigh parser targeting a low-level language subset (no closur
 
 ## Project Structure
 
-This is a Cargo workspace with seven crates:
+This is a Cargo workspace with eight crates:
 
-- **skylow-common** (`crates/common/`) - Shared utilities (debug logging, string interning)
-- **skylow-parser** (`crates/parser/`) - Core parser library with clean public API
-- **skylow-baselang** (`crates/baselang/`) - Typed AST with prelude syntax definitions
-- **skylow-mir** (`crates/mir/`) - Mid-level IR (register-based intermediate representation)
-- **skylow-jit** (`crates/jit/`) - JIT compiler targeting AArch64
-- **skylow** (`crates/skylow/`) - Compiler library with driver and test runner
-- **skylow-cli** (`crates/skylow-cli/`) - Command-line interface
+- **common** (`crates/common/`) - Shared utilities (debug logging, string interning)
+- **parser** (`crates/parser/`) - Core parser library with clean public API
+- **baselang** (`crates/baselang/`) - Typed AST with prelude syntax definitions
+- **mir** (`crates/mir/`) - Mid-level IR (register-based intermediate representation)
+- **jit** (`crates/jit/`) - JIT compiler targeting AArch64
+- **elf** (`crates/elf/`) - ELF binary generation
+- **compiler** (`crates/compiler/`) - Compiler library with driver and test runner
+- **cli** (`crates/cli/`) - Command-line interface
 
 ## Building & Running
 
 ```bash
 cargo build                              # debug build
 cargo build --release                    # release build
-cargo run -p skylow-cli -- file.skyh     # parse a file (uses VM by default)
-cargo run -p skylow-cli -- --parser-interp file.skyh  # use interpreted parser
+cargo run -p cli -- file.skyh     # parse a file (uses VM by default)
+cargo run -p cli -- --parser-interp file.skyh  # use interpreted parser
 cargo test                               # run tests
 ```
 
@@ -29,16 +30,16 @@ cargo test                               # run tests
 Control via environment variables:
 
 ```bash
-DEBUG=parser cargo run -p skylow-cli -- file.skyh     # enable parser logging
-DEBUG=* cargo run -p skylow-cli -- file.skyh          # enable all loggers
+DEBUG=parser cargo run -p cli -- file.skyh     # enable parser logging
+DEBUG=* cargo run -p cli -- file.skyh          # enable all loggers
 DEBUG_VERBOSITY=2 DEBUG=parser ...                    # verbosity 0-3 (default 1)
 ```
 
 ### Adding Logging
 
 ```rust
-use skylow_common::debug::create_logger;
-use skylow_common::{log, log_detail, log_success, log_fail};
+use common::debug::create_logger;
+use common::{log, log_detail, log_success, log_fail};
 
 let log = create_logger("mymodule");
 
@@ -103,7 +104,7 @@ cargo test -- --nocapture            # show stdout/stderr during tests
 
 **Adding a new test:**
 1. Create a `.skyh` file in `crates/parser/tests/parse_tree/` with syntax declarations and test expressions
-2. Run `cargo run -p skylow-cli -- your_test.skyh` to see the actual output
+2. Run `cargo run -p cli -- your_test.skyh` to see the actual output
 3. Create a `.skyh.expected` file with the expected output
 4. Run `cargo test` to verify
 
@@ -129,7 +130,7 @@ Each crate has its own file-based tests using `datatest-stable`:
 - **baselang** (`crates/baselang/tests/lower/`) - AST lowering tests (`.skyl` → `.skyl.expected`)
 - **mir** (`crates/mir/tests/compile/`) - MIR compilation tests (`.skyl` → `.skyl.expected`)
 - **jit** (`crates/jit/tests/execute/`) - JIT execution tests (`.skyl` → `.skyl.expected`)
-- **skylow** (`crates/skylow/tests/e2e/`) - Full pipeline integration tests (`.skyl` → `.skyl.expected`)
+- **compiler** (`crates/compiler/tests/e2e/`) - Full pipeline integration tests (`.skyl` → `.skyl.expected`)
 
 **Adding a new test:**
 1. Create a `.skyl` (or `.skyh`) file in the appropriate test directory
@@ -152,8 +153,8 @@ Always run commands with appropriate timeouts to avoid getting stuck on infinite
 
 ```bash
 timeout 30s cargo test                    # 30 second timeout for tests
-timeout 60s cargo run -p skylow-cli -- file.skyh  # 60 second timeout for parsing
-timeout 10s ./target/debug/skylow-cli file.skyh   # 10 second timeout for quick operations
+timeout 60s cargo run -p cli -- file.skyh  # 60 second timeout for parsing
+timeout 10s ./target/debug/skylow file.skyh        # 10 second timeout for quick operations
 ```
 
 This is especially important when:

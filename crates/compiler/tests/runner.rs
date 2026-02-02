@@ -3,7 +3,7 @@
 //! Tests the full pipeline: parse -> lower -> MIR -> JIT -> execute.
 
 use datatest_stable::harness;
-use skylow::TestRunner;
+use compiler::TestRunner;
 use std::fs;
 use std::path::Path;
 

@@ -7,7 +7,7 @@ pub mod driver;
 pub mod runner;
 
 // Re-export parser types for convenience
-pub use skylow_parser::{
+pub use parser::{
     format_errors, format_node, syntax_node_to_string, Atom, AtomWithQuant, CharClass,
     InterpretedParser, ParseError, Parser, Quantifier, SourceLoc, SyntaxNode, SyntaxRule, VMParser,
 };

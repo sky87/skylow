@@ -6,7 +6,7 @@
 //! - Helper functions for working with syntax nodes
 
 use bumpalo::Bump;
-use skylow_common::StringInterner;
+use common::StringInterner;
 
 use crate::constants::{
     CAT_COMMAND, CAT_EXPR, CAT_IDENT, CAT_SYNTAX_ATOM, CAT_SYNTAX_DECL, CAT_SYNTAX_PATTERN,

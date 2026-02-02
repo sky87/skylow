@@ -1,12 +1,12 @@
 [package]
-name = "skylow-baselang"
+name = "baselang"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
 bumpalo.workspace = true
-skylow-common.workspace = true
-skylow-parser.workspace = true
+common.workspace = true
+parser.workspace = true
 
 [dev-dependencies]
 datatest-stable.workspace = true

@@ -1,10 +1,10 @@
 [package]
-name = "skylow-mir"
+name = "mir"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-skylow-baselang.workspace = true
+baselang.workspace = true
 
 [dev-dependencies]
 bumpalo.workspace = true

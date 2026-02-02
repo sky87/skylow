@@ -2,7 +2,7 @@
 //!
 //! Compiles MIR functions to AArch64 machine code.
 
-use skylow_mir::{BinOp, CmpOp, Inst, MirFunction, Reg};
+use mir::{BinOp, CmpOp, Inst, MirFunction, Reg};
 
 use super::emit::{ArmReg, Cond, Emitter};
 
@@ -144,7 +144,7 @@ impl SimpleRegAlloc {
 mod tests {
     use super::*;
     use crate::ExecutableMemory;
-    use skylow_mir::MirFunction;
+    use mir::MirFunction;
 
     fn run_test(func: &MirFunction) -> u8 {
         let compiled = compile_function(func);

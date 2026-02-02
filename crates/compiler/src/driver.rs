@@ -1,12 +1,12 @@
 //! Driver for SkyLow parsing.
 
 use bumpalo::Bump;
-use skylow_common::StringInterner;
+use common::StringInterner;
 
-use skylow_parser::constants::{
+use parser::constants::{
     CAT_EXPR, CAT_IDENT, CAT_SYNTAX_DECL, RULE_SYNTAX_CATEGORY, RULE_SYNTAX_DECL,
 };
-use skylow_parser::{
+use parser::{
     add_expr_rule, add_syntax_decl_command_rule, extract_and_register_rule,
     get_child_by_category, get_node_text, init_syntaxlang, InterpretedParser, ParseError, Parser,
     SyntaxNode, VMParser,

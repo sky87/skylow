@@ -3,7 +3,7 @@
 //! This module converts the untyped SyntaxNode tree from the parser
 //! into the typed BaseLang AST.
 
-use skylow_parser::SyntaxNode;
+use parser::SyntaxNode;
 
 use crate::ast::{BinOp, CmpOp, Expr, FnDecl, Program, SourceInfo, Stmt, TestDecl};
 

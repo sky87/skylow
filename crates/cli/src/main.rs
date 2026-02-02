@@ -4,7 +4,7 @@ use std::fs;
 use std::io::Write;
 use std::process;
 
-use skylow::{format_node, Compiler, Driver, MainRunner, TestRunner};
+use compiler::{format_node, Compiler, Driver, MainRunner, TestRunner};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -261,7 +261,7 @@ fn run_emit_command(emit_type: &str, args: &[String]) {
 }
 
 fn emit_parse(source: &str, file_path: &str) {
-    use skylow_baselang::{parse_with_prelude, PRELUDE};
+    use baselang::{parse_with_prelude, PRELUDE};
 
     let arena = Bump::new();
     let result = parse_with_prelude(&arena, source);
@@ -280,7 +280,7 @@ fn emit_parse(source: &str, file_path: &str) {
 }
 
 fn emit_ast(source: &str, file_path: &str) {
-    use skylow_baselang::{lower_program, parse_with_prelude, PRELUDE};
+    use baselang::{lower_program, parse_with_prelude, PRELUDE};
 
     let arena = Bump::new();
     let result = parse_with_prelude(&arena, source);
@@ -307,8 +307,8 @@ fn emit_ast(source: &str, file_path: &str) {
 }
 
 fn emit_mir(source: &str, file_path: &str) {
-    use skylow_baselang::{lower_program, parse_with_prelude, PRELUDE};
-    use skylow_mir::lower_program as lower_to_mir;
+    use baselang::{lower_program, parse_with_prelude, PRELUDE};
+    use mir::lower_program as lower_to_mir;
 
     let arena = Bump::new();
     let result = parse_with_prelude(&arena, source);

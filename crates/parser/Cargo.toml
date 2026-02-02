@@ -1,10 +1,10 @@
 [package]
-name = "skylow-parser"
+name = "parser"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-skylow-common.workspace = true
+common.workspace = true
 bumpalo.workspace = true
 hashbrown.workspace = true
 

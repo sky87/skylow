@@ -4,9 +4,9 @@
 //! executed to verify correct behavior.
 
 use bumpalo::Bump;
-use skylow_baselang::{lower_program, parse_with_prelude, PRELUDE};
-use skylow_elf::generate_elf;
-use skylow_mir::lower_program as lower_to_mir;
+use baselang::{lower_program, parse_with_prelude, PRELUDE};
+use elf::generate_elf;
+use mir::lower_program as lower_to_mir;
 use std::path::Path;
 
 fn run_test(path: &Path) -> datatest_stable::Result<()> {

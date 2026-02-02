@@ -1,9 +1,9 @@
 //! Parsing Virtual Machine execution.
 
 use bumpalo::{collections::Vec as BumpVec, Bump};
-use skylow_common::debug::{create_logger, Logger};
-use skylow_common::intern::StringInterner;
-use skylow_common::{log, log_detail, log_fail, log_success};
+use common::debug::{create_logger, Logger};
+use common::intern::StringInterner;
+use common::{log, log_detail, log_fail, log_success};
 
 use crate::node::{SourceLoc, SyntaxNode};
 use crate::syntax::CharClass;

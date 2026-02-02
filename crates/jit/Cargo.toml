@@ -1,16 +1,16 @@
 [package]
-name = "skylow-jit"
+name = "jit"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
 libc.workspace = true
-skylow-mir.workspace = true
+mir.workspace = true
 
 [dev-dependencies]
 bumpalo.workspace = true
 datatest-stable.workspace = true
-skylow-baselang.workspace = true
+baselang.workspace = true
 
 [[test]]
 name = "execute"

@@ -4,12 +4,12 @@
 
 use bumpalo::Bump;
 use datatest_stable::harness;
-use skylow_baselang::{lower_program, parse_with_prelude, PRELUDE};
+use baselang::{lower_program, parse_with_prelude, PRELUDE};
 use std::path::Path;
 
 /// Format an expression for output
-fn format_expr(expr: &skylow_baselang::Expr, indent: usize) -> String {
-    use skylow_baselang::Expr;
+fn format_expr(expr: &baselang::Expr, indent: usize) -> String {
+    use baselang::Expr;
     let pad = "  ".repeat(indent);
     match expr {
         Expr::Int(n) => format!("{}Int({})", pad, n),
@@ -38,8 +38,8 @@ fn format_expr(expr: &skylow_baselang::Expr, indent: usize) -> String {
 }
 
 /// Format a statement for output
-fn format_stmt(stmt: &skylow_baselang::Stmt, indent: usize) -> String {
-    use skylow_baselang::Stmt;
+fn format_stmt(stmt: &baselang::Stmt, indent: usize) -> String {
+    use baselang::Stmt;
     let pad = "  ".repeat(indent);
     match stmt {
         Stmt::Assert { expr, .. } => {
@@ -49,7 +49,7 @@ fn format_stmt(stmt: &skylow_baselang::Stmt, indent: usize) -> String {
 }
 
 /// Format a test declaration for output
-fn format_test(test: &skylow_baselang::TestDecl) -> String {
+fn format_test(test: &baselang::TestDecl) -> String {
     let mut lines = vec![format!("Test \"{}\"", test.name)];
     for stmt in &test.body {
         lines.push(format_stmt(stmt, 1));
@@ -58,7 +58,7 @@ fn format_test(test: &skylow_baselang::TestDecl) -> String {
 }
 
 /// Format a program for output
-fn format_program(program: &skylow_baselang::Program) -> String {
+fn format_program(program: &baselang::Program) -> String {
     program.tests.iter().map(format_test).collect::<Vec<_>>().join("\n\n")
 }
 

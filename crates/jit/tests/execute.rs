@@ -4,9 +4,9 @@
 
 use bumpalo::Bump;
 use datatest_stable::harness;
-use skylow_baselang::{lower_program as lower_to_ast, parse_with_prelude, PRELUDE};
-use skylow_jit::{compile_function, ExecutableMemory};
-use skylow_mir::lower_program as lower_to_mir;
+use baselang::{lower_program as lower_to_ast, parse_with_prelude, PRELUDE};
+use jit::{compile_function, ExecutableMemory};
+use mir::lower_program as lower_to_mir;
 use std::path::Path;
 
 fn run_test(path: &Path) -> datatest_stable::Result<()> {

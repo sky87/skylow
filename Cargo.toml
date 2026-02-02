@@ -6,8 +6,8 @@ members = [
     "crates/mir",
     "crates/jit",
     "crates/elf",
-    "crates/skylow",
-    "crates/skylow-cli",
+    "crates/compiler",
+    "crates/cli",
 ]
 resolver = "2"
 
@@ -22,10 +22,10 @@ datatest-stable = "0.2"
 libc = "0.2"
 
 # Internal crates
-skylow-common = { path = "crates/common" }
-skylow-parser = { path = "crates/parser" }
-skylow-baselang = { path = "crates/baselang" }
-skylow-mir = { path = "crates/mir" }
-skylow-jit = { path = "crates/jit" }
-skylow-elf = { path = "crates/elf" }
-skylow = { path = "crates/skylow" }
+common = { path = "crates/common" }
+parser = { path = "crates/parser" }
+baselang = { path = "crates/baselang" }
+mir = { path = "crates/mir" }
+jit = { path = "crates/jit" }
+elf = { path = "crates/elf" }
+compiler = { path = "crates/compiler" }

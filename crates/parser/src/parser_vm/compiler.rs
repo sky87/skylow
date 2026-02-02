@@ -1,7 +1,7 @@
 //! Bytecode compiler for syntax rules.
 
 use bumpalo::Bump;
-use skylow_common::intern::StringInterner;
+use common::intern::StringInterner;
 use crate::syntax::{Atom, AtomWithQuant, CharClass, Quantifier, SyntaxRule};
 
 use super::grammar::{CompiledGrammar, CompiledRule};

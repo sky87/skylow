@@ -5,7 +5,7 @@
 pub mod aarch64;
 pub mod elf64;
 
-use skylow_mir::MirFunction;
+use mir::MirFunction;
 
 use crate::aarch64::codegen::compile_binary;
 use crate::elf64::{
@@ -153,7 +153,7 @@ fn patch_rodata_addresses(code: &mut [u8], rodata_vaddr: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use skylow_mir::{AssertInfo, CmpOp, Inst, MirFunction, Reg};
+    use mir::{AssertInfo, CmpOp, Inst, MirFunction, Reg};
 
     #[test]
     fn test_generate_elf_simple() {

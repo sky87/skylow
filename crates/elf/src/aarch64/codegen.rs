@@ -2,8 +2,8 @@
 //!
 //! Generates position-independent code that uses Linux syscalls for I/O.
 
-use skylow_jit::{ArmReg, Cond, Emitter};
-use skylow_mir::{BinOp, CmpOp, Inst, MirFunction, Reg};
+use jit::{ArmReg, Cond, Emitter};
+use mir::{BinOp, CmpOp, Inst, MirFunction, Reg};
 
 /// Linux syscall numbers for AArch64
 const SYS_WRITE: u16 = 64;
@@ -197,7 +197,7 @@ impl SimpleRegAlloc {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use skylow_mir::{AssertInfo, MirFunction};
+    use mir::{AssertInfo, MirFunction};
 
     #[test]
     fn test_compile_simple() {

@@ -1,16 +1,16 @@
 [package]
-name = "skylow"
+name = "compiler"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
 bumpalo.workspace = true
-skylow-common.workspace = true
-skylow-parser.workspace = true
-skylow-baselang.workspace = true
-skylow-mir.workspace = true
-skylow-jit.workspace = true
-skylow-elf.workspace = true
+common.workspace = true
+parser.workspace = true
+baselang.workspace = true
+mir.workspace = true
+jit.workspace = true
+elf.workspace = true
 
 [dev-dependencies]
 datatest-stable.workspace = true
