@@ -24,6 +24,223 @@ impl std::fmt::Display for LowerError {
 
 impl std::error::Error for LowerError {}
 
+/// Lowering context that holds shared state for the lowering pass.
+struct Lowerer<'a> {
+    arena: &'a Bump,
+    source: &'a str,
+}
+
+impl<'a> Lowerer<'a> {
+    fn new(arena: &'a Bump, source: &'a str) -> Self {
+        Self { arena, source }
+    }
+
+    fn lower_program(&self, nodes: &[&SyntaxNode<'_>]) -> Result<Program<'a>, LowerError> {
+        let mut tests = Vec::new();
+        let mut functions = Vec::new();
+
+        for node in nodes {
+            if node.rule == "test" && node.category == "Stmt" {
+                tests.push(self.lower_test(node)?);
+            } else if node.rule == "fn" && node.category == "Stmt" {
+                functions.push(self.lower_fn(node)?);
+            }
+            // Ignore other top-level nodes for now
+        }
+
+        Ok(Program {
+            tests: self.arena.alloc_slice_copy(&tests),
+            functions: self.arena.alloc_slice_copy(&functions),
+        })
+    }
+
+    fn lower_test(&self, node: &SyntaxNode<'_>) -> Result<TestDecl<'a>, LowerError> {
+        // Test node structure: test |> "test" [^\n:]+ ":" >> Stmt+
+        // The [^\n:]+ captures individual characters as _char:_charset nodes
+        // We need to collect them and accumulate the name
+
+        let mut name_chars = Vec::new();
+        let mut body = Vec::new();
+
+        for child in node.children {
+            if child.category == "Stmt" {
+                body.push(self.lower_stmt(child)?);
+            } else if child.rule == "_charset" && child.category == "_char" {
+                // Character set captures individual chars
+                if let Some(text) = child.text {
+                    name_chars.push(text);
+                }
+            }
+        }
+
+        // Concatenate and trim, then allocate in arena
+        let name_string: String = name_chars.concat();
+        let name = self.arena.alloc_str(name_string.trim());
+
+        Ok(TestDecl {
+            name,
+            body: self.arena.alloc_slice_copy(&body),
+        })
+    }
+
+    fn lower_fn(&self, node: &SyntaxNode<'_>) -> Result<FnDecl<'a>, LowerError> {
+        // Function node structure: fn |> "fn" [a-z_][a-z0-9_]* "()" ":" >> Stmt+
+        // The name is captured by the character class patterns
+
+        let mut name_chars = Vec::new();
+        let mut body = Vec::new();
+
+        for child in node.children {
+            if child.category == "Stmt" {
+                body.push(self.lower_stmt(child)?);
+            } else if child.rule == "_charset" && child.category == "_char" {
+                // Character set captures individual chars
+                if let Some(text) = child.text {
+                    name_chars.push(text);
+                }
+            }
+        }
+
+        // Concatenate and trim, then allocate in arena
+        let name_string: String = name_chars.concat();
+        let name = self.arena.alloc_str(name_string.trim());
+
+        // Capture source info for the function declaration
+        let (start, line, col, end) = get_full_span(node);
+        let fn_text = self.source.get(start..end).unwrap_or("");
+        let info = SourceInfo { line, col, source: fn_text };
+
+        Ok(FnDecl {
+            name,
+            body: self.arena.alloc_slice_copy(&body),
+            info,
+        })
+    }
+
+    fn lower_stmt(&self, node: &SyntaxNode<'_>) -> Result<Stmt<'a>, LowerError> {
+        match node.rule {
+            "assert" => {
+                // assert "assert" "(" Expr ")"
+                let expr_node = find_child_by_category(node, "Expr").ok_or_else(|| LowerError {
+                    msg: "assert missing expression".to_string(),
+                    line: node.start.line,
+                    col: node.start.col,
+                })?;
+                let expr = self.lower_expr(expr_node)?;
+
+                // Capture source info for error reporting
+                // Use the full span of the expression, including nested children
+                let (start, line, col, end) = get_full_span(expr_node);
+                let expr_text = &self.source[start..end];
+                let info = SourceInfo { line, col, source: expr_text };
+
+                Ok(Stmt::Assert {
+                    expr: self.arena.alloc(expr),
+                    info,
+                })
+            }
+            _ => Err(LowerError {
+                msg: format!("unknown statement rule: {}", node.rule),
+                line: node.start.line,
+                col: node.start.col,
+            }),
+        }
+    }
+
+    fn lower_expr(&self, node: &SyntaxNode<'_>) -> Result<Expr<'a>, LowerError> {
+        match node.rule {
+            "int" => {
+                let text = self.get_text(node);
+                let value: i64 = text.parse().map_err(|_| LowerError {
+                    msg: format!("invalid integer: {}", text),
+                    line: node.start.line,
+                    col: node.start.col,
+                })?;
+                Ok(Expr::Int(value))
+            }
+            "add" | "sub" | "mul" | "div" => {
+                let op = match node.rule {
+                    "add" => BinOp::Add,
+                    "sub" => BinOp::Sub,
+                    "mul" => BinOp::Mul,
+                    "div" => BinOp::Div,
+                    _ => unreachable!(),
+                };
+                let (left, right) = self.get_binary_operands(node)?;
+                Ok(Expr::BinOp {
+                    op,
+                    left: self.arena.alloc(left),
+                    right: self.arena.alloc(right),
+                })
+            }
+            "eq" | "neq" | "lt" | "lte" | "gt" | "gte" => {
+                let op = match node.rule {
+                    "eq" => CmpOp::Eq,
+                    "neq" => CmpOp::Neq,
+                    "lt" => CmpOp::Lt,
+                    "lte" => CmpOp::Lte,
+                    "gt" => CmpOp::Gt,
+                    "gte" => CmpOp::Gte,
+                    _ => unreachable!(),
+                };
+                let (left, right) = self.get_binary_operands(node)?;
+                Ok(Expr::Cmp {
+                    op,
+                    left: self.arena.alloc(left),
+                    right: self.arena.alloc(right),
+                })
+            }
+            "paren" => {
+                let inner = find_child_by_category(node, "Expr").ok_or_else(|| LowerError {
+                    msg: "paren missing inner expression".to_string(),
+                    line: node.start.line,
+                    col: node.start.col,
+                })?;
+                Ok(Expr::Paren(self.arena.alloc(self.lower_expr(inner)?)))
+            }
+            _ => Err(LowerError {
+                msg: format!("unknown expression rule: {}", node.rule),
+                line: node.start.line,
+                col: node.start.col,
+            }),
+        }
+    }
+
+    fn get_binary_operands(&self, node: &SyntaxNode<'_>) -> Result<(Expr<'a>, Expr<'a>), LowerError> {
+        let expr_children: Vec<_> = node
+            .children
+            .iter()
+            .filter(|c| c.category == "Expr")
+            .collect();
+
+        if expr_children.len() != 2 {
+            return Err(LowerError {
+                msg: format!(
+                    "binary op {} expected 2 Expr children, got {}",
+                    node.rule,
+                    expr_children.len()
+                ),
+                line: node.start.line,
+                col: node.start.col,
+            });
+        }
+
+        let left = self.lower_expr(expr_children[0])?;
+        let right = self.lower_expr(expr_children[1])?;
+        Ok((left, right))
+    }
+
+    fn get_text(&self, node: &SyntaxNode<'a>) -> &'a str {
+        if let Some(text) = node.text {
+            text
+        } else {
+            let start = node.start.offset as usize;
+            let end = node.end_offset as usize;
+            &self.source[start..end]
+        }
+    }
+}
+
 /// Lower a list of syntax nodes into a Program.
 ///
 /// The nodes should come from parsing with the BaseLang prelude,
@@ -36,218 +253,7 @@ pub fn lower_program<'a>(
     nodes: &[&SyntaxNode<'_>],
     source: &'a str,
 ) -> Result<Program<'a>, LowerError> {
-    let mut tests = Vec::new();
-    let mut functions = Vec::new();
-
-    for node in nodes {
-        if node.rule == "test" && node.category == "Stmt" {
-            tests.push(lower_test(arena, node, source)?);
-        } else if node.rule == "fn" && node.category == "Stmt" {
-            functions.push(lower_fn(arena, node, source)?);
-        }
-        // Ignore other top-level nodes for now
-    }
-
-    Ok(Program {
-        tests: arena.alloc_slice_copy(&tests),
-        functions: arena.alloc_slice_copy(&functions),
-    })
-}
-
-fn lower_test<'a>(
-    arena: &'a Bump,
-    node: &SyntaxNode<'_>,
-    source: &'a str,
-) -> Result<TestDecl<'a>, LowerError> {
-    // Test node structure: test |> "test" [^\n:]+ ":" >> Stmt+
-    // The [^\n:]+ captures individual characters as _char:_charset nodes
-    // We need to collect them and accumulate the name
-
-    let mut name_chars = Vec::new();
-    let mut body = Vec::new();
-
-    for child in node.children {
-        if child.category == "Stmt" {
-            body.push(lower_stmt(arena, child, source)?);
-        } else if child.rule == "_charset" && child.category == "_char" {
-            // Character set captures individual chars
-            if let Some(text) = child.text {
-                name_chars.push(text);
-            }
-        }
-    }
-
-    // Concatenate and trim, then allocate in arena
-    let name_string: String = name_chars.concat();
-    let name = arena.alloc_str(name_string.trim());
-
-    Ok(TestDecl {
-        name,
-        body: arena.alloc_slice_copy(&body),
-    })
-}
-
-fn lower_fn<'a>(
-    arena: &'a Bump,
-    node: &SyntaxNode<'_>,
-    source: &'a str,
-) -> Result<FnDecl<'a>, LowerError> {
-    // Function node structure: fn |> "fn" [a-z_][a-z0-9_]* "()" ":" >> Stmt+
-    // The name is captured by the character class patterns
-
-    let mut name_chars = Vec::new();
-    let mut body = Vec::new();
-
-    for child in node.children {
-        if child.category == "Stmt" {
-            body.push(lower_stmt(arena, child, source)?);
-        } else if child.rule == "_charset" && child.category == "_char" {
-            // Character set captures individual chars
-            if let Some(text) = child.text {
-                name_chars.push(text);
-            }
-        }
-    }
-
-    // Concatenate and trim, then allocate in arena
-    let name_string: String = name_chars.concat();
-    let name = arena.alloc_str(name_string.trim());
-
-    // Capture source info for the function declaration
-    let (start, line, col, end) = get_full_span(node);
-    let fn_text = source.get(start..end).unwrap_or("");
-    let info = SourceInfo { line, col, source: fn_text };
-
-    Ok(FnDecl {
-        name,
-        body: arena.alloc_slice_copy(&body),
-        info,
-    })
-}
-
-fn lower_stmt<'a>(
-    arena: &'a Bump,
-    node: &SyntaxNode<'_>,
-    source: &'a str,
-) -> Result<Stmt<'a>, LowerError> {
-    match node.rule {
-        "assert" => {
-            // assert "assert" "(" Expr ")"
-            let expr_node = find_child_by_category(node, "Expr").ok_or_else(|| LowerError {
-                msg: "assert missing expression".to_string(),
-                line: node.start.line,
-                col: node.start.col,
-            })?;
-            let expr = lower_expr(arena, expr_node, source)?;
-
-            // Capture source info for error reporting
-            // Use the full span of the expression, including nested children
-            let (start, line, col, end) = get_full_span(expr_node);
-            let expr_text = &source[start..end];
-            let info = SourceInfo { line, col, source: expr_text };
-
-            Ok(Stmt::Assert {
-                expr: arena.alloc(expr),
-                info,
-            })
-        }
-        _ => Err(LowerError {
-            msg: format!("unknown statement rule: {}", node.rule),
-            line: node.start.line,
-            col: node.start.col,
-        }),
-    }
-}
-
-fn lower_expr<'a>(
-    arena: &'a Bump,
-    node: &SyntaxNode<'_>,
-    source: &'a str,
-) -> Result<Expr<'a>, LowerError> {
-    match node.rule {
-        "int" => {
-            let text = get_text(node, source);
-            let value: i64 = text.parse().map_err(|_| LowerError {
-                msg: format!("invalid integer: {}", text),
-                line: node.start.line,
-                col: node.start.col,
-            })?;
-            Ok(Expr::Int(value))
-        }
-        "add" | "sub" | "mul" | "div" => {
-            let op = match node.rule {
-                "add" => BinOp::Add,
-                "sub" => BinOp::Sub,
-                "mul" => BinOp::Mul,
-                "div" => BinOp::Div,
-                _ => unreachable!(),
-            };
-            let (left, right) = get_binary_operands(arena, node, source)?;
-            Ok(Expr::BinOp {
-                op,
-                left: arena.alloc(left),
-                right: arena.alloc(right),
-            })
-        }
-        "eq" | "neq" | "lt" | "lte" | "gt" | "gte" => {
-            let op = match node.rule {
-                "eq" => CmpOp::Eq,
-                "neq" => CmpOp::Neq,
-                "lt" => CmpOp::Lt,
-                "lte" => CmpOp::Lte,
-                "gt" => CmpOp::Gt,
-                "gte" => CmpOp::Gte,
-                _ => unreachable!(),
-            };
-            let (left, right) = get_binary_operands(arena, node, source)?;
-            Ok(Expr::Cmp {
-                op,
-                left: arena.alloc(left),
-                right: arena.alloc(right),
-            })
-        }
-        "paren" => {
-            let inner = find_child_by_category(node, "Expr").ok_or_else(|| LowerError {
-                msg: "paren missing inner expression".to_string(),
-                line: node.start.line,
-                col: node.start.col,
-            })?;
-            Ok(Expr::Paren(arena.alloc(lower_expr(arena, inner, source)?)))
-        }
-        _ => Err(LowerError {
-            msg: format!("unknown expression rule: {}", node.rule),
-            line: node.start.line,
-            col: node.start.col,
-        }),
-    }
-}
-
-fn get_binary_operands<'a>(
-    arena: &'a Bump,
-    node: &SyntaxNode<'_>,
-    source: &'a str,
-) -> Result<(Expr<'a>, Expr<'a>), LowerError> {
-    let expr_children: Vec<_> = node
-        .children
-        .iter()
-        .filter(|c| c.category == "Expr")
-        .collect();
-
-    if expr_children.len() != 2 {
-        return Err(LowerError {
-            msg: format!(
-                "binary op {} expected 2 Expr children, got {}",
-                node.rule,
-                expr_children.len()
-            ),
-            line: node.start.line,
-            col: node.start.col,
-        });
-    }
-
-    let left = lower_expr(arena, expr_children[0], source)?;
-    let right = lower_expr(arena, expr_children[1], source)?;
-    Ok((left, right))
+    Lowerer::new(arena, source).lower_program(nodes)
 }
 
 fn find_child_by_category<'a>(
@@ -255,16 +261,6 @@ fn find_child_by_category<'a>(
     category: &str,
 ) -> Option<&'a SyntaxNode<'a>> {
     node.children.iter().find(|c| c.category == category).copied()
-}
-
-fn get_text<'a>(node: &'a SyntaxNode<'a>, source: &'a str) -> &'a str {
-    if let Some(text) = node.text {
-        text
-    } else {
-        let start = node.start.offset as usize;
-        let end = node.end_offset as usize;
-        &source[start..end]
-    }
 }
 
 /// Get the full span of a node including all its children.
