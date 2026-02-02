@@ -10,7 +10,8 @@
   "customizations": {
     "vscode": {
       "extensions": [
-        "oven.bun-vscode"
+        "tamasfe.even-better-toml",
+        "rust-lang.rust-analyzer"
       ]
     }
   }
