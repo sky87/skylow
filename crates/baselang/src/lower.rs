@@ -293,14 +293,15 @@ fn get_full_span(node: &SyntaxNode<'_>) -> (usize, u32, u32, usize) {
 mod tests {
     use super::*;
     use crate::parse_with_prelude;
+    use indoc::indoc;
 
     #[test]
     fn test_lower_simple_test() {
         let arena = Bump::new();
-        let source = r#"
-test simple:
-  assert(1 == 1)
-"#;
+        let source = indoc! {"
+            test simple:
+              assert(1 == 1)
+        "};
         let result = parse_with_prelude(&arena, source);
         assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
 
@@ -314,11 +315,11 @@ test simple:
     #[test]
     fn test_lower_arithmetic() {
         let arena = Bump::new();
-        let source = r#"
-test arithmetic:
-  assert((2 + 2) == 4)
-  assert((3 * 4) == 12)
-"#;
+        let source = indoc! {"
+            test arithmetic:
+              assert((2 + 2) == 4)
+              assert((3 * 4) == 12)
+        "};
         let result = parse_with_prelude(&arena, source);
         assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
 
@@ -343,15 +344,15 @@ test arithmetic:
     #[test]
     fn test_lower_all_comparison_ops() {
         let arena = Bump::new();
-        let source = r#"
-test comparisons:
-  assert(1 == 1)
-  assert((1 != 2) == 1)
-  assert((1 < 2) == 1)
-  assert((2 <= 2) == 1)
-  assert((3 > 2) == 1)
-  assert((2 >= 2) == 1)
-"#;
+        let source = indoc! {"
+            test comparisons:
+              assert(1 == 1)
+              assert((1 != 2) == 1)
+              assert((1 < 2) == 1)
+              assert((2 <= 2) == 1)
+              assert((3 > 2) == 1)
+              assert((2 >= 2) == 1)
+        "};
         let result = parse_with_prelude(&arena, source);
         assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
 
@@ -364,10 +365,10 @@ test comparisons:
     #[test]
     fn test_lower_fn_decl() {
         let arena = Bump::new();
-        let source = r#"
-fn main():
-  assert(1 == 1)
-"#;
+        let source = indoc! {"
+            fn main():
+              assert(1 == 1)
+        "};
         let result = parse_with_prelude(&arena, source);
         assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
 
@@ -382,13 +383,13 @@ fn main():
     #[test]
     fn test_lower_fn_and_test() {
         let arena = Bump::new();
-        let source = r#"
-fn main():
-  assert(1 == 1)
+        let source = indoc! {"
+            fn main():
+              assert(1 == 1)
 
-test simple:
-  assert(2 == 2)
-"#;
+            test simple:
+              assert(2 == 2)
+        "};
         let result = parse_with_prelude(&arena, source);
         assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
 

@@ -10,6 +10,7 @@ parser.workspace = true
 
 [dev-dependencies]
 datatest-stable.workspace = true
+indoc = "2.0.7"
 
 [[test]]
 name = "lower"

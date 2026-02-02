@@ -2,16 +2,17 @@
 
 use bumpalo::Bump;
 use compiler::{format_node, syntax_node_to_string, Driver};
+use indoc::indoc;
 
 #[test]
 fn test_driver_basic() {
     let arena = Bump::new();
     let driver = Driver::new(&arena);
 
-    let source = r#"
-syntax num \d+ : Expr
-42
-"#;
+    let source = indoc! {"
+        syntax num \\d+ : Expr
+        42
+    "};
 
     let result = driver.process(source);
     assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
@@ -47,11 +48,11 @@ fn test_driver_with_category() {
     let arena = Bump::new();
     let driver = Driver::new(&arena);
 
-    let source = r#"
-syntax_category Term
-syntax num \d+ : Term
-42
-"#;
+    let source = indoc! {"
+        syntax_category Term
+        syntax num \\d+ : Term
+        42
+    "};
 
     let result = driver.process(source);
     assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
@@ -63,10 +64,10 @@ fn test_driver_interpreter_basic() {
     let arena = Bump::new();
     let driver = Driver::with_interpreter(&arena);
 
-    let source = r#"
-syntax num \d+ : Expr
-42
-"#;
+    let source = indoc! {"
+        syntax num \\d+ : Expr
+        42
+    "};
 
     let result = driver.process(source);
     assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);

@@ -340,14 +340,15 @@ impl Default for Compiler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use indoc::indoc;
 
     #[test]
     fn test_runner_simple() {
         let runner = TestRunner::new();
-        let source = r#"
-test simple:
-  assert(1 == 1)
-"#;
+        let source = indoc! {"
+            test simple:
+              assert(1 == 1)
+        "};
         let result = runner.run(source);
         assert!(result.parse_errors.is_empty());
         assert!(result.lower_errors.is_empty());
@@ -362,10 +363,10 @@ test simple:
     #[test]
     fn test_runner_default() {
         let runner = TestRunner::default();
-        let source = r#"
-test default:
-  assert(1 == 1)
-"#;
+        let source = indoc! {"
+            test default:
+              assert(1 == 1)
+        "};
         let result = runner.run(source);
         assert!(result.success());
     }
@@ -375,13 +376,13 @@ test default:
         let runner = TestRunner::new();
         // Note: Due to a parser bug with precedence, we need explicit parentheses
         // for expressions where a lower-precedence operator follows a higher one
-        let source = r#"
-test arithmetic works as expected:
-  assert((2 + 2) == 4)
-  assert((2 + (3*2)) == 8)
-  assert(((1 + 2) * (3 + 4)) == 21)
-  assert(((10 / 2) - 3) == 2)
-"#;
+        let source = indoc! {"
+            test arithmetic works as expected:
+              assert((2 + 2) == 4)
+              assert((2 + (3*2)) == 8)
+              assert(((1 + 2) * (3 + 4)) == 21)
+              assert(((10 / 2) - 3) == 2)
+        "};
         let result = runner.run(source);
         assert!(result.parse_errors.is_empty(), "parse errors: {:?}", result.parse_errors);
         assert!(result.lower_errors.is_empty(), "lower errors: {:?}", result.lower_errors);
@@ -392,10 +393,10 @@ test arithmetic works as expected:
     #[test]
     fn test_runner_failing_test() {
         let runner = TestRunner::new();
-        let source = r#"
-test failing:
-  assert(1 == 2)
-"#;
+        let source = indoc! {"
+            test failing:
+              assert(1 == 2)
+        "};
         let result = runner.run(source);
         assert!(result.parse_errors.is_empty());
         assert!(result.lower_errors.is_empty());
@@ -410,13 +411,13 @@ test failing:
     #[test]
     fn test_runner_multiple_tests() {
         let runner = TestRunner::new();
-        let source = r#"
-test first:
-  assert(1 == 1)
+        let source = indoc! {"
+            test first:
+              assert(1 == 1)
 
-test second:
-  assert(2 == 2)
-"#;
+            test second:
+              assert(2 == 2)
+        "};
         let result = runner.run(source);
         assert!(result.parse_errors.is_empty());
         assert!(result.lower_errors.is_empty());
@@ -427,10 +428,10 @@ test second:
     #[test]
     fn test_main_runner_simple() {
         let runner = MainRunner::new();
-        let source = r#"
-fn main():
-  assert(1 == 1)
-"#;
+        let source = indoc! {"
+            fn main():
+              assert(1 == 1)
+        "};
         let result = runner.run(source);
         assert!(result.parse_errors.is_empty());
         assert!(result.lower_errors.is_empty());
@@ -441,10 +442,10 @@ fn main():
     #[test]
     fn test_main_runner_default() {
         let runner = MainRunner::default();
-        let source = r#"
-fn main():
-  assert(1 == 1)
-"#;
+        let source = indoc! {"
+            fn main():
+              assert(1 == 1)
+        "};
         let result = runner.run(source);
         assert!(result.success());
     }
@@ -452,10 +453,10 @@ fn main():
     #[test]
     fn test_main_runner_failing() {
         let runner = MainRunner::new();
-        let source = r#"
-fn main():
-  assert(1 == 2)
-"#;
+        let source = indoc! {"
+            fn main():
+              assert(1 == 2)
+        "};
         let result = runner.run(source);
         assert!(!result.success());
         assert_eq!(result.exit_code, 1);
@@ -465,10 +466,10 @@ fn main():
     #[test]
     fn test_main_runner_no_main() {
         let runner = MainRunner::new();
-        let source = r#"
-test foo:
-  assert(1 == 1)
-"#;
+        let source = indoc! {"
+            test foo:
+              assert(1 == 1)
+        "};
         let result = runner.run(source);
         assert!(!result.success());
         assert_eq!(result.failure_message, Some("no main function found".to_string()));
@@ -477,10 +478,10 @@ test foo:
     #[test]
     fn test_compiler_simple() {
         let compiler = Compiler::new();
-        let source = r#"
-fn main():
-  assert(1 == 1)
-"#;
+        let source = indoc! {"
+            fn main():
+              assert(1 == 1)
+        "};
         let result = compiler.compile(source, "test.skyl");
         assert!(result.is_ok());
         let elf = result.unwrap();
@@ -491,10 +492,10 @@ fn main():
     #[test]
     fn test_compiler_default() {
         let compiler = Compiler::default();
-        let source = r#"
-fn main():
-  assert(1 == 1)
-"#;
+        let source = indoc! {"
+            fn main():
+              assert(1 == 1)
+        "};
         let result = compiler.compile(source, "test.skyl");
         assert!(result.is_ok());
     }
@@ -502,10 +503,10 @@ fn main():
     #[test]
     fn test_compiler_no_main() {
         let compiler = Compiler::new();
-        let source = r#"
-test foo:
-  assert(1 == 1)
-"#;
+        let source = indoc! {"
+            test foo:
+              assert(1 == 1)
+        "};
         let result = compiler.compile(source, "test.skyl");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("no main function found"));
