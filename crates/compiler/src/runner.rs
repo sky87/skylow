@@ -80,9 +80,10 @@ impl TestRunner {
 
         // Lower to BaseLang AST
         let combined = format!("{}\n{}", PRELUDE, source);
+        let combined_ref = arena.alloc_str(&combined);
         // +1 for the newline between prelude and source
         let prelude_lines = PRELUDE.lines().count() as u32 + 1;
-        let program = match lower_program(&parse_result.nodes, &combined, prelude_lines) {
+        let program = match lower_program(&arena, &parse_result.nodes, combined_ref, prelude_lines) {
             Ok(p) => p,
             Err(e) => {
                 return RunResult {
@@ -204,8 +205,9 @@ impl MainRunner {
 
         // Lower to BaseLang AST
         let combined = format!("{}\n{}", PRELUDE, source);
+        let combined_ref = arena.alloc_str(&combined);
         let prelude_lines = PRELUDE.lines().count() as u32 + 1;
-        let program = match lower_program(&parse_result.nodes, &combined, prelude_lines) {
+        let program = match lower_program(&arena, &parse_result.nodes, combined_ref, prelude_lines) {
             Ok(p) => p,
             Err(e) => {
                 return MainResult {
@@ -232,8 +234,8 @@ impl MainRunner {
 
         // Lower to MIR (just the main function)
         let single_program = Program {
-            tests: vec![],
-            functions: vec![main_fn.clone()],
+            tests: &[],
+            functions: std::slice::from_ref(main_fn),
         };
         let mir_program = lower_to_mir(&single_program);
         let mir_func = &mir_program.functions[0];
@@ -314,8 +316,9 @@ impl Compiler {
 
         // Lower to BaseLang AST
         let combined = format!("{}\n{}", PRELUDE, source);
+        let combined_ref = arena.alloc_str(&combined);
         let prelude_lines = PRELUDE.lines().count() as u32 + 1;
-        let program = lower_program(&parse_result.nodes, &combined, prelude_lines)
+        let program = lower_program(&arena, &parse_result.nodes, combined_ref, prelude_lines)
             .map_err(|e| e.to_string())?;
 
         // Find main function
@@ -327,8 +330,8 @@ impl Compiler {
 
         // Lower to MIR
         let single_program = Program {
-            tests: vec![],
-            functions: vec![main_fn.clone()],
+            tests: &[],
+            functions: std::slice::from_ref(main_fn),
         };
         let mir_program = lower_to_mir(&single_program);
         let mir_func = &mir_program.functions[0];

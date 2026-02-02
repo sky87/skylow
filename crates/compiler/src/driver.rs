@@ -1,7 +1,6 @@
 //! Driver for SkyLow parsing.
 
 use bumpalo::Bump;
-use common::StringInterner;
 
 use parser::constants::{
     CAT_EXPR, CAT_IDENT, CAT_SYNTAX_DECL, RULE_SYNTAX_CATEGORY, RULE_SYNTAX_DECL,
@@ -36,25 +35,23 @@ impl<'a> Driver<'a> {
 
     /// Process a source string and return parse results.
     pub fn process(&self, source: &str) -> ParseResult<'a> {
-        let mut strings = StringInterner::new(self.arena);
         if self.use_interpreter {
             let mut parser = InterpretedParser::new(self.arena, source);
-            self.process_with_parser(&mut strings, &mut parser, source)
+            self.process_with_parser(&mut parser, source)
         } else {
             let mut parser = VMParser::new(self.arena, source);
-            self.process_with_parser(&mut strings, &mut parser, source)
+            self.process_with_parser(&mut parser, source)
         }
     }
 
     fn process_with_parser<'src, P: Parser<'a, 'src>>(
         &self,
-        strings: &mut StringInterner<'a>,
         parser: &mut P,
         source: &'src str,
     ) -> ParseResult<'a> {
-        init_syntaxlang(self.arena, strings, parser);
-        add_expr_rule(self.arena, strings, parser, CAT_EXPR);
-        add_syntax_decl_command_rule(self.arena, strings, parser);
+        init_syntaxlang(self.arena, parser);
+        add_expr_rule(self.arena, parser, CAT_EXPR);
+        add_syntax_decl_command_rule(self.arena, parser);
 
         let mut nodes = Vec::new();
         let mut errors = Vec::new();
@@ -68,10 +65,10 @@ impl<'a> Driver<'a> {
                         if syntax_decl.rule == RULE_SYNTAX_CATEGORY {
                             if let Some(name_node) = get_child_by_category(syntax_decl, CAT_IDENT) {
                                 let category_name = get_node_text(name_node, source);
-                                add_expr_rule(self.arena, strings, parser, category_name);
+                                add_expr_rule(self.arena, parser, category_name);
                             }
                         } else {
-                            extract_and_register_rule(self.arena, strings, parser, syntax_decl, source);
+                            extract_and_register_rule(self.arena, parser, syntax_decl, source);
                         }
                     } else if !cmd_node.children.is_empty() {
                         // Get the expression node (first child of Command)

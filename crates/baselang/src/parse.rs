@@ -4,7 +4,6 @@
 //! the BaseLang prelude syntax before parsing user code.
 
 use bumpalo::Bump;
-use common::StringInterner;
 use parser::constants::{CAT_EXPR, CAT_IDENT, CAT_SYNTAX_DECL, RULE_SYNTAX_CATEGORY, RULE_SYNTAX_DECL};
 use parser::{
     add_expr_rule, add_syntax_decl_command_rule, extract_and_register_rule,
@@ -27,14 +26,15 @@ pub struct ParseResult<'a> {
 /// 2. Processes the prelude to register base syntax rules
 /// 3. Parses the user source code
 /// 4. Returns the resulting AST nodes
+///
+/// Uses the parser's internal string interner for all string interning.
 pub fn parse_with_prelude<'a>(arena: &'a Bump, source: &str) -> ParseResult<'a> {
-    let mut strings = StringInterner::new(arena);
     let combined = format!("{}\n{}", PRELUDE, source);
     let mut parser = VMParser::new(arena, &combined);
 
-    init_syntaxlang(arena, &mut strings, &mut parser);
-    add_expr_rule(arena, &mut strings, &mut parser, CAT_EXPR);
-    add_syntax_decl_command_rule(arena, &mut strings, &mut parser);
+    init_syntaxlang(arena, &mut parser);
+    add_expr_rule(arena, &mut parser, CAT_EXPR);
+    add_syntax_decl_command_rule(arena, &mut parser);
 
     let mut nodes = Vec::new();
     let mut errors = Vec::new();
@@ -51,12 +51,11 @@ pub fn parse_with_prelude<'a>(arena: &'a Bump, source: &str) -> ParseResult<'a> 
                     if syntax_decl.rule == RULE_SYNTAX_CATEGORY {
                         if let Some(name_node) = get_child_by_category(syntax_decl, CAT_IDENT) {
                             let category_name = get_node_text(name_node, &combined);
-                            add_expr_rule(arena, &mut strings, &mut parser, category_name);
+                            add_expr_rule(arena, &mut parser, category_name);
                         }
                     } else {
                         extract_and_register_rule(
                             arena,
-                            &mut strings,
                             &mut parser,
                             syntax_decl,
                             &combined,

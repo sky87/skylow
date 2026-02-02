@@ -293,8 +293,9 @@ fn emit_ast(source: &str, file_path: &str) {
     }
 
     let combined = format!("{}\n{}", PRELUDE, source);
+    let combined_ref = arena.alloc_str(&combined);
     let prelude_lines = PRELUDE.lines().count() as u32 + 1;
-    let program = match lower_program(&result.nodes, &combined, prelude_lines) {
+    let program = match lower_program(&arena, &result.nodes, combined_ref, prelude_lines) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("{}: {}", file_path, e);
@@ -321,8 +322,9 @@ fn emit_mir(source: &str, file_path: &str) {
     }
 
     let combined = format!("{}\n{}", PRELUDE, source);
+    let combined_ref = arena.alloc_str(&combined);
     let prelude_lines = PRELUDE.lines().count() as u32 + 1;
-    let program = match lower_program(&result.nodes, &combined, prelude_lines) {
+    let program = match lower_program(&arena, &result.nodes, combined_ref, prelude_lines) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("{}: {}", file_path, e);

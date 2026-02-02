@@ -1,16 +1,17 @@
 //! Typed AST for BaseLang
 //!
 //! This module defines the AST types used after lowering from SyntaxNode.
+//! All types use arena allocation for zero-copy references.
 
 /// Source location information for error reporting
-#[derive(Debug, Clone, PartialEq)]
-pub struct SourceInfo {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SourceInfo<'a> {
     /// Line number (1-based)
     pub line: u32,
     /// Column number (1-based)
     pub col: u32,
     /// Source text of the expression
-    pub source: String,
+    pub source: &'a str,
 }
 
 /// Binary arithmetic operations
@@ -34,56 +35,68 @@ pub enum CmpOp {
 }
 
 /// Expression AST
-#[derive(Debug, Clone, PartialEq)]
-pub enum Expr {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Expr<'a> {
     /// Integer literal
     Int(i64),
     /// Binary arithmetic operation
     BinOp {
         op: BinOp,
-        left: Box<Expr>,
-        right: Box<Expr>,
+        left: &'a Expr<'a>,
+        right: &'a Expr<'a>,
     },
     /// Comparison operation
     Cmp {
         op: CmpOp,
-        left: Box<Expr>,
-        right: Box<Expr>,
+        left: &'a Expr<'a>,
+        right: &'a Expr<'a>,
     },
     /// Parenthesized expression (kept for debugging, semantically transparent)
-    Paren(Box<Expr>),
+    Paren(&'a Expr<'a>),
 }
 
 /// Statement AST
-#[derive(Debug, Clone, PartialEq)]
-pub enum Stmt {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Stmt<'a> {
     /// Assert statement: assert(condition) with source info for error reporting
-    Assert { expr: Expr, info: SourceInfo },
+    Assert {
+        expr: &'a Expr<'a>,
+        info: SourceInfo<'a>,
+    },
 }
 
 /// Test declaration
-#[derive(Debug, Clone, PartialEq)]
-pub struct TestDecl {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TestDecl<'a> {
     /// Test name (e.g., "arithmetic works as expected")
-    pub name: String,
+    pub name: &'a str,
     /// Body statements
-    pub body: Vec<Stmt>,
+    pub body: &'a [Stmt<'a>],
 }
 
 /// Function declaration
-#[derive(Debug, Clone, PartialEq)]
-pub struct FnDecl {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FnDecl<'a> {
     /// Function name (e.g., "main")
-    pub name: String,
+    pub name: &'a str,
     /// Body statements
-    pub body: Vec<Stmt>,
+    pub body: &'a [Stmt<'a>],
     /// Source info for the function declaration (for error reporting)
-    pub info: SourceInfo,
+    pub info: SourceInfo<'a>,
 }
 
 /// A complete program (collection of test declarations and functions)
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct Program {
-    pub tests: Vec<TestDecl>,
-    pub functions: Vec<FnDecl>,
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Program<'a> {
+    pub tests: &'a [TestDecl<'a>],
+    pub functions: &'a [FnDecl<'a>],
+}
+
+impl<'a> Default for Program<'a> {
+    fn default() -> Self {
+        Program {
+            tests: &[],
+            functions: &[],
+        }
+    }
 }

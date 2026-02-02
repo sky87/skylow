@@ -2,7 +2,6 @@
 
 use bumpalo::Bump;
 use datatest_stable::harness;
-use common::StringInterner;
 use parser::constants::{CAT_EXPR, CAT_SYNTAX_DECL, RULE_SYNTAX_CATEGORY, RULE_SYNTAX_DECL};
 use parser::{
     add_expr_rule, add_syntax_decl_command_rule, extract_and_register_rule, format_errors,
@@ -18,11 +17,10 @@ static EXERCISE_DEBUG_ONCE: Once = Once::new();
 fn exercise_debug_methods() {
     EXERCISE_DEBUG_ONCE.call_once(|| {
         let arena = Bump::new();
-        let mut strings = StringInterner::new(&arena);
 
         // Exercise InterpretedParser debug methods
         let mut interp = InterpretedParser::new(&arena, "test");
-        init_syntaxlang(&arena, &mut strings, &mut interp);
+        init_syntaxlang(&arena, &mut interp);
         interp.set_trace(true);
         interp.set_trace(false);
         interp.dump();
@@ -31,7 +29,7 @@ fn exercise_debug_methods() {
 
         // Exercise VMParser debug methods
         let mut vm = VMParser::new(&arena, "test");
-        init_syntaxlang(&arena, &mut strings, &mut vm);
+        init_syntaxlang(&arena, &mut vm);
         vm.set_trace(true);
         vm.set_trace(false);
         vm.dump();
@@ -40,15 +38,15 @@ fn exercise_debug_methods() {
 
         // Exercise VM directives
         let mut vm_trace = VMParser::new(&arena, "#!vm:trace\ntest");
-        init_syntaxlang(&arena, &mut strings, &mut vm_trace);
+        init_syntaxlang(&arena, &mut vm_trace);
         vm_trace.check_vm_directive();
 
         let mut vm_dump = VMParser::new(&arena, "#!vm:dump\ntest");
-        init_syntaxlang(&arena, &mut strings, &mut vm_dump);
+        init_syntaxlang(&arena, &mut vm_dump);
         vm_dump.check_vm_directive();
 
         let mut vm_rules = VMParser::new(&arena, "#!vm:rules\ntest");
-        init_syntaxlang(&arena, &mut strings, &mut vm_rules);
+        init_syntaxlang(&arena, &mut vm_rules);
         vm_rules.check_vm_directive();
 
         // Exercise CompiledGrammar::default for coverage
@@ -59,13 +57,12 @@ fn exercise_debug_methods() {
 /// Run a parser on the input and collect results
 fn run_parser<'a, 'src, P: Parser<'a, 'src>>(
     arena: &'a Bump,
-    strings: &mut StringInterner<'a>,
     parser: &mut P,
     input: &'src str,
 ) -> (Vec<&'a SyntaxNode<'a>>, Vec<ParseError>) {
-    init_syntaxlang(arena, strings, parser);
-    add_expr_rule(arena, strings, parser, CAT_EXPR);
-    add_syntax_decl_command_rule(arena, strings, parser);
+    init_syntaxlang(arena, parser);
+    add_expr_rule(arena, parser, CAT_EXPR);
+    add_syntax_decl_command_rule(arena, parser);
 
     let mut nodes = Vec::new();
     let mut errors = Vec::new();
@@ -77,7 +74,7 @@ fn run_parser<'a, 'src, P: Parser<'a, 'src>>(
                     let syntax_decl = get_child_by_category(cmd_node, CAT_SYNTAX_DECL)
                         .expect("syntaxDecl command must have SyntaxDecl child");
                     if syntax_decl.rule != RULE_SYNTAX_CATEGORY {
-                        extract_and_register_rule(arena, strings, parser, syntax_decl, input);
+                        extract_and_register_rule(arena, parser, syntax_decl, input);
                     }
                 } else if let Some(expr_node) = get_child_by_category(cmd_node, CAT_EXPR) {
                     nodes.push(expr_node);
@@ -143,10 +140,9 @@ fn run_test(path: &Path) -> datatest_stable::Result<()> {
 
     // Run interpreted parser
     let arena_interp = Bump::new();
-    let mut strings_interp = StringInterner::new(&arena_interp);
     let mut parser_interp = InterpretedParser::new(&arena_interp, &input);
     let (nodes_interp, errors_interp) =
-        run_parser(&arena_interp, &mut strings_interp, &mut parser_interp, &input);
+        run_parser(&arena_interp, &mut parser_interp, &input);
 
     // Exercise debug formatting functions for coverage
     for node in &nodes_interp {
@@ -169,9 +165,8 @@ fn run_test(path: &Path) -> datatest_stable::Result<()> {
 
     // Run VM parser
     let arena_vm = Bump::new();
-    let mut strings_vm = StringInterner::new(&arena_vm);
     let mut parser_vm = VMParser::new(&arena_vm, &input);
-    let (nodes_vm, errors_vm) = run_parser(&arena_vm, &mut strings_vm, &mut parser_vm, &input);
+    let (nodes_vm, errors_vm) = run_parser(&arena_vm, &mut parser_vm, &input);
 
     let actual_vm = combine_output(
         format_output(&nodes_vm),

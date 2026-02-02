@@ -23,8 +23,9 @@ fn run_test(path: &Path) -> datatest_stable::Result<()> {
 
     // Lower to BaseLang
     let combined = format!("{}\n{}", PRELUDE, source);
+    let combined_ref = arena.alloc_str(&combined);
     let prelude_lines = PRELUDE.lines().count() as u32 + 1;
-    let program = lower_program(&parse_result.nodes, &combined, prelude_lines)
+    let program = lower_program(&arena, &parse_result.nodes, combined_ref, prelude_lines)
         .expect("Lowering failed");
 
     // Lower to MIR

@@ -3,6 +3,8 @@
 //! This trait defines the common interface implemented by both
 //! `InterpretedParser` and `VMParser`.
 
+use common::StringInterner;
+
 use crate::node::{ParseError, SyntaxNode};
 use crate::syntax::SyntaxRule;
 
@@ -38,6 +40,16 @@ pub trait Parser<'a, 'src>: Sized {
 
     /// Add a syntax rule to the grammar.
     fn add_rule(&mut self, rule: &'a SyntaxRule<'a>);
+
+    // =========================================================================
+    // String interner access
+    // =========================================================================
+
+    /// Get mutable access to the parser's string interner.
+    ///
+    /// This allows callers to share the parser's arena-backed string interner
+    /// rather than creating separate interners.
+    fn strings_mut(&mut self) -> &mut StringInterner<'a>;
 
     // =========================================================================
     // Debug utilities

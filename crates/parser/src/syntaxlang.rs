@@ -6,7 +6,6 @@
 //! - Helper functions for working with syntax nodes
 
 use bumpalo::Bump;
-use common::StringInterner;
 
 use crate::constants::{
     CAT_COMMAND, CAT_EXPR, CAT_IDENT, CAT_SYNTAX_ATOM, CAT_SYNTAX_DECL, CAT_SYNTAX_PATTERN,
@@ -55,32 +54,99 @@ const RULE_SYNTAX_NO_CATEGORY: &str = "syntaxNoCategory";
 ///
 /// This function is generic over any parser implementing the `Parser` trait,
 /// allowing it to work with both `InterpretedParser` and `VMParser`.
+///
+/// Uses the parser's internal string interner for all string interning.
 pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
     arena: &'a Bump,
-    strings: &mut StringInterner<'a>,
     parser: &mut P,
 ) {
-    // Pre-intern all literal strings used in bootstrap patterns
-    let s_quote = strings.intern("\"");
-    let s_backslash = strings.intern("\\");
-    let s_indent_anchor = strings.intern("|>");
-    let s_indent_lax = strings.intern(">");
-    let s_indent_strict = strings.intern(">>");
-    let s_lparen = strings.intern("(");
-    let s_rparen = strings.intern(")");
-    let s_at = strings.intern("@");
-    let s_pipe = strings.intern("|");
-    let s_syntax = strings.intern("syntax");
-    let s_colon = strings.intern(":");
-    let s_syntax_category = strings.intern("syntax_category");
-    let s_lbracket = strings.intern("[");
-    let s_caret = strings.intern("^");
-    let s_rbracket = strings.intern("]");
-
-    // Pre-intern category reference strings used in bootstrap patterns
-    let cat_syntax_pattern = strings.intern(CAT_SYNTAX_PATTERN);
-    let cat_syntax_atom = strings.intern(CAT_SYNTAX_ATOM);
-    let cat_ident = strings.intern(CAT_IDENT);
+    // Pre-intern ALL strings before creating any rules
+    // This allows us to release the borrow before calling parser.add_rule()
+    let (
+        s_quote,
+        s_backslash,
+        s_indent_anchor,
+        s_indent_lax,
+        s_indent_strict,
+        s_lparen,
+        s_rparen,
+        s_at,
+        s_pipe,
+        s_syntax,
+        s_colon,
+        s_syntax_category,
+        s_lbracket,
+        s_caret,
+        s_rbracket,
+        cat_syntax_pattern,
+        cat_syntax_atom,
+        cat_ident,
+        ident_cat,
+        syntax_atom_cat,
+        syntax_pattern_cat,
+        syntax_decl_cat,
+        r_ident,
+        r_literal,
+        r_category_ref,
+        r_char_class,
+        r_charset,
+        r_indent_anchor,
+        r_indent_lax,
+        r_indent_strict,
+        r_group,
+        r_quantified,
+        r_precedence,
+        r_atom,
+        r_seq,
+        r_alt,
+        r_syntax_no_category,
+        r_syntax,
+        r_syntax_category,
+    ) = {
+        let strings = parser.strings_mut();
+        (
+            strings.intern("\""),
+            strings.intern("\\"),
+            strings.intern("|>"),
+            strings.intern(">"),
+            strings.intern(">>"),
+            strings.intern("("),
+            strings.intern(")"),
+            strings.intern("@"),
+            strings.intern("|"),
+            strings.intern("syntax"),
+            strings.intern(":"),
+            strings.intern("syntax_category"),
+            strings.intern("["),
+            strings.intern("^"),
+            strings.intern("]"),
+            strings.intern(CAT_SYNTAX_PATTERN),
+            strings.intern(CAT_SYNTAX_ATOM),
+            strings.intern(CAT_IDENT),
+            strings.intern(CAT_IDENT),
+            strings.intern(CAT_SYNTAX_ATOM),
+            strings.intern(CAT_SYNTAX_PATTERN),
+            strings.intern(CAT_SYNTAX_DECL),
+            strings.intern(RULE_IDENT),
+            strings.intern(RULE_LITERAL),
+            strings.intern(RULE_CATEGORY_REF),
+            strings.intern(RULE_CHAR_CLASS),
+            strings.intern(RULE_CHARSET),
+            strings.intern(RULE_INDENT_ANCHOR),
+            strings.intern(RULE_INDENT_LAX),
+            strings.intern(RULE_INDENT_STRICT),
+            strings.intern(RULE_GROUP),
+            strings.intern(RULE_QUANTIFIED),
+            strings.intern(RULE_PRECEDENCE),
+            strings.intern(RULE_ATOM),
+            strings.intern(RULE_SEQ),
+            strings.intern(RULE_ALT),
+            strings.intern(RULE_SYNTAX_NO_CATEGORY),
+            strings.intern(RULE_SYNTAX),
+            strings.intern(RULE_SYNTAX_CATEGORY),
+        )
+    };
+    // Borrow of parser.strings_mut() is released here
 
     // Helper to create atoms (now just wraps already-interned strings)
     let lit = |s: &'a str| -> Atom<'a> { Atom::Literal(s) };
@@ -153,13 +219,6 @@ pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
         }
     };
 
-    // Intern category names
-    // Use "_Ident" for syntax-related identifiers to avoid conflicts with user-defined "Ident"
-    let ident_cat = strings.intern(CAT_IDENT);
-    let syntax_atom_cat = strings.intern(CAT_SYNTAX_ATOM);
-    let syntax_pattern_cat = strings.intern(CAT_SYNTAX_PATTERN);
-    let syntax_decl_cat = strings.intern(CAT_SYNTAX_DECL);
-
     // _Ident: [a..zA..Z_] [a..zA..Z0..9_]*
     {
         let pattern = arena.alloc_slice_copy(&[
@@ -176,7 +235,7 @@ pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
             ])),
         ]);
         let rule = arena.alloc(SyntaxRule {
-            name: strings.intern(RULE_IDENT),
+            name: r_ident,
             category: ident_cat,
             pattern,
             is_left_recursive: false,
@@ -192,7 +251,7 @@ pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
             one(lit(s_quote)),
         ]);
         let rule = arena.alloc(SyntaxRule {
-            name: strings.intern(RULE_LITERAL),
+            name: r_literal,
             category: syntax_atom_cat,
             pattern,
             is_left_recursive: false,
@@ -211,7 +270,7 @@ pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
             ])),
         ]);
         let rule = arena.alloc(SyntaxRule {
-            name: strings.intern(RULE_CATEGORY_REF),
+            name: r_category_ref,
             category: syntax_atom_cat,
             pattern,
             is_left_recursive: false,
@@ -230,7 +289,7 @@ pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
             ])),
         ]);
         let rule = arena.alloc(SyntaxRule {
-            name: strings.intern(RULE_CHAR_CLASS),
+            name: r_char_class,
             category: syntax_atom_cat,
             pattern,
             is_left_recursive: false,
@@ -247,7 +306,7 @@ pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
             one(lit(s_rbracket)),
         ]);
         let rule = arena.alloc(SyntaxRule {
-            name: strings.intern(RULE_CHARSET),
+            name: r_charset,
             category: syntax_atom_cat,
             pattern,
             is_left_recursive: false,
@@ -259,7 +318,7 @@ pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
     {
         let pattern = arena.alloc_slice_copy(&[one(lit(s_indent_anchor))]);
         let rule = arena.alloc(SyntaxRule {
-            name: strings.intern(RULE_INDENT_ANCHOR),
+            name: r_indent_anchor,
             category: syntax_atom_cat,
             pattern,
             is_left_recursive: false,
@@ -272,7 +331,7 @@ pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
     {
         let pattern = arena.alloc_slice_copy(&[one(lit(s_indent_lax))]);
         let rule = arena.alloc(SyntaxRule {
-            name: strings.intern(RULE_INDENT_LAX),
+            name: r_indent_lax,
             category: syntax_atom_cat,
             pattern,
             is_left_recursive: false,
@@ -284,7 +343,7 @@ pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
     {
         let pattern = arena.alloc_slice_copy(&[one(lit(s_indent_strict))]);
         let rule = arena.alloc(SyntaxRule {
-            name: strings.intern(RULE_INDENT_STRICT),
+            name: r_indent_strict,
             category: syntax_atom_cat,
             pattern,
             is_left_recursive: false,
@@ -300,7 +359,7 @@ pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
             one(lit(s_rparen)),
         ]);
         let rule = arena.alloc(SyntaxRule {
-            name: strings.intern(RULE_GROUP),
+            name: r_group,
             category: syntax_atom_cat,
             pattern,
             is_left_recursive: false,
@@ -319,7 +378,7 @@ pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
             ])),
         ]);
         let rule = arena.alloc(SyntaxRule {
-            name: strings.intern(RULE_QUANTIFIED),
+            name: r_quantified,
             category: syntax_atom_cat,
             pattern,
             is_left_recursive: true,
@@ -335,7 +394,7 @@ pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
             plus(Atom::CharClass(CharClass::Digit)),
         ]);
         let rule = arena.alloc(SyntaxRule {
-            name: strings.intern(RULE_PRECEDENCE),
+            name: r_precedence,
             category: syntax_atom_cat,
             pattern,
             is_left_recursive: true,
@@ -347,7 +406,7 @@ pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
     {
         let pattern = arena.alloc_slice_copy(&[one(cat_ref(cat_syntax_atom))]);
         let rule = arena.alloc(SyntaxRule {
-            name: strings.intern(RULE_ATOM),
+            name: r_atom,
             category: syntax_pattern_cat,
             pattern,
             is_left_recursive: false,
@@ -360,7 +419,7 @@ pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
         let pattern =
             arena.alloc_slice_copy(&[one(cat_ref(cat_syntax_pattern)), one(cat_ref(cat_syntax_atom))]);
         let rule = arena.alloc(SyntaxRule {
-            name: strings.intern(RULE_SEQ),
+            name: r_seq,
             category: syntax_pattern_cat,
             pattern,
             is_left_recursive: true,
@@ -376,7 +435,7 @@ pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
             one(cat_ref(cat_syntax_atom)),
         ]);
         let rule = arena.alloc(SyntaxRule {
-            name: strings.intern(RULE_ALT),
+            name: r_alt,
             category: syntax_pattern_cat,
             pattern,
             is_left_recursive: true,
@@ -395,7 +454,7 @@ pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
             one(cat_ref(cat_syntax_pattern)),
         ]);
         let rule = arena.alloc(SyntaxRule {
-            name: strings.intern(RULE_SYNTAX_NO_CATEGORY),
+            name: r_syntax_no_category,
             category: syntax_decl_cat,
             pattern,
             is_left_recursive: false,
@@ -415,7 +474,7 @@ pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
             one(cat_ref(cat_ident)),
         ]);
         let rule = arena.alloc(SyntaxRule {
-            name: strings.intern(RULE_SYNTAX),
+            name: r_syntax,
             category: syntax_decl_cat,
             pattern,
             is_left_recursive: false,
@@ -427,7 +486,7 @@ pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
     {
         let pattern = arena.alloc_slice_copy(&[one(lit(s_syntax_category)), one(cat_ref(cat_ident))]);
         let rule = arena.alloc(SyntaxRule {
-            name: strings.intern(RULE_SYNTAX_CATEGORY),
+            name: r_syntax_category,
             category: syntax_decl_cat,
             pattern,
             is_left_recursive: false,
@@ -456,9 +515,10 @@ pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
 /// Returns the created rule, or None if extraction failed.
 ///
 /// This function is generic over any parser implementing the `Parser` trait.
+///
+/// Uses the parser's internal string interner for all string interning.
 pub fn extract_and_register_rule<'a, 's, P: Parser<'a, 's>>(
     arena: &'a Bump,
-    strings: &mut StringInterner<'a>,
     parser: &mut P,
     syntax_decl: &'a SyntaxNode<'a>,
     source: &'s str,
@@ -481,8 +541,8 @@ pub fn extract_and_register_rule<'a, 's, P: Parser<'a, 's>>(
         CAT_EXPR
     };
 
-    // Extract pattern atoms
-    let mut intern_fn = |s: &str| -> &'a str { strings.intern(s) };
+    // Extract pattern atoms using parser's string interner
+    let mut intern_fn = |s: &str| -> &'a str { parser.strings_mut().intern(s) };
     let mut pattern_atoms = extract_pattern_atoms(arena, pattern_node, source, &mut intern_fn);
 
     // Check if left-recursive (starts with self-category reference)
@@ -501,10 +561,16 @@ pub fn extract_and_register_rule<'a, 's, P: Parser<'a, 's>>(
         pattern_atoms = add_implicit_whitespace(arena, &pattern_atoms);
     }
 
+    // Intern rule name and category, then create rule
+    let (interned_rule_name, interned_category) = {
+        let strings = parser.strings_mut();
+        (strings.intern(rule_name), strings.intern(category))
+    };
+
     let pattern_slice = arena.alloc_slice_copy(&pattern_atoms);
     let rule = arena.alloc(SyntaxRule {
-        name: strings.intern(rule_name),
-        category: strings.intern(category),
+        name: interned_rule_name,
+        category: interned_category,
         pattern: pattern_slice,
         is_left_recursive,
     });
@@ -520,21 +586,32 @@ pub fn extract_and_register_rule<'a, 's, P: Parser<'a, 's>>(
 /// expressions of that category to be parsed at the top level.
 ///
 /// This function is generic over any parser implementing the `Parser` trait.
+///
+/// Uses the parser's internal string interner for all string interning.
 pub fn add_expr_rule<'a, 'src, P: Parser<'a, 'src>>(
     arena: &'a Bump,
-    strings: &mut StringInterner<'a>,
     parser: &mut P,
     category: &str,
 ) {
-    let cat_ref = Atom::CategoryRef(strings.intern(category));
+    // Pre-intern all strings before creating the rule
+    let (cat_str, rule_name, command_cat) = {
+        let strings = parser.strings_mut();
+        (
+            strings.intern(category),
+            strings.intern(RULE_EXPR),
+            strings.intern(CAT_COMMAND),
+        )
+    };
+
+    let cat_ref = Atom::CategoryRef(cat_str);
     let pattern = arena.alloc_slice_copy(&[AtomWithQuant {
         atom: cat_ref,
         quant: Quantifier::One,
         precedence: None,
     }]);
     let rule = arena.alloc(SyntaxRule {
-        name: strings.intern(RULE_EXPR),
-        category: strings.intern(CAT_COMMAND),
+        name: rule_name,
+        category: command_cat,
         pattern,
         is_left_recursive: false,
     });
@@ -545,19 +622,30 @@ pub fn add_expr_rule<'a, 'src, P: Parser<'a, 'src>>(
 /// Must be called AFTER add_expr_rule so it has higher priority (latest wins).
 ///
 /// This function is generic over any parser implementing the `Parser` trait.
+///
+/// Uses the parser's internal string interner for all string interning.
 pub fn add_syntax_decl_command_rule<'a, 'src, P: Parser<'a, 'src>>(
     arena: &'a Bump,
-    strings: &mut StringInterner<'a>,
     parser: &mut P,
 ) {
+    // Pre-intern all strings before creating the rule
+    let (syntax_decl_cat, rule_name, command_cat) = {
+        let strings = parser.strings_mut();
+        (
+            strings.intern(CAT_SYNTAX_DECL),
+            strings.intern(RULE_SYNTAX_DECL),
+            strings.intern(CAT_COMMAND),
+        )
+    };
+
     let pattern = arena.alloc_slice_copy(&[AtomWithQuant {
-        atom: Atom::CategoryRef(strings.intern(CAT_SYNTAX_DECL)),
+        atom: Atom::CategoryRef(syntax_decl_cat),
         quant: Quantifier::One,
         precedence: None,
     }]);
     let rule = arena.alloc(SyntaxRule {
-        name: strings.intern(RULE_SYNTAX_DECL),
-        category: strings.intern(CAT_COMMAND),
+        name: rule_name,
+        category: command_cat,
         pattern,
         is_left_recursive: false,
     });

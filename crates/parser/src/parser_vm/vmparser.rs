@@ -361,6 +361,10 @@ impl<'a, 'src> Parser<'a, 'src> for VMParser<'a, 'src> {
         self.grammar_dirty = true;
     }
 
+    fn strings_mut(&mut self) -> &mut StringInterner<'a> {
+        &mut self.strings
+    }
+
     fn set_trace(&mut self, enabled: bool) {
         self.trace_enabled = enabled;
     }

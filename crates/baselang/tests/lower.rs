@@ -51,7 +51,7 @@ fn format_stmt(stmt: &baselang::Stmt, indent: usize) -> String {
 /// Format a test declaration for output
 fn format_test(test: &baselang::TestDecl) -> String {
     let mut lines = vec![format!("Test \"{}\"", test.name)];
-    for stmt in &test.body {
+    for stmt in test.body {
         lines.push(format_stmt(stmt, 1));
     }
     lines.join("\n")
@@ -90,8 +90,9 @@ fn run_test(path: &Path) -> datatest_stable::Result<()> {
 
     // Lower to BaseLang AST
     let combined = format!("{}\n{}", PRELUDE, input);
+    let combined_ref = arena.alloc_str(&combined);
     let prelude_lines = PRELUDE.lines().count() as u32 + 1; // +1 for newline between prelude and source
-    let actual = match lower_program(&parse_result.nodes, &combined, prelude_lines) {
+    let actual = match lower_program(&arena, &parse_result.nodes, combined_ref, prelude_lines) {
         Ok(program) => format_program(&program),
         Err(e) => format!("LOWER ERROR: {}", e),
     };

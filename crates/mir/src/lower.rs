@@ -9,10 +9,10 @@ pub fn lower_program(program: &Program) -> MirProgram {
     let mut mir = MirProgram::default();
 
     // Lower test declarations
-    for test in &program.tests {
-        let mut func = MirFunction::new(test.name.clone());
+    for test in program.tests {
+        let mut func = MirFunction::new(test.name.to_owned());
 
-        for stmt in &test.body {
+        for stmt in test.body {
             lower_stmt(&mut func, stmt);
         }
 
@@ -21,10 +21,10 @@ pub fn lower_program(program: &Program) -> MirProgram {
     }
 
     // Lower function declarations
-    for fn_decl in &program.functions {
-        let mut func = MirFunction::new_function(fn_decl.name.clone());
+    for fn_decl in program.functions {
+        let mut func = MirFunction::new_function(fn_decl.name.to_owned());
 
-        for stmt in &fn_decl.body {
+        for stmt in fn_decl.body {
             lower_stmt(&mut func, stmt);
         }
 
@@ -43,7 +43,7 @@ fn lower_stmt(func: &mut MirFunction, stmt: &Stmt) {
             let assert_info = AssertInfo {
                 line: info.line,
                 col: info.col,
-                source: info.source.clone(),
+                source: info.source.to_owned(),
             };
             func.emit_assert(cond, assert_info);
         }
@@ -92,27 +92,39 @@ fn lower_expr(func: &mut MirFunction, expr: &Expr) -> Reg {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use baselang::{Expr, SourceInfo, Stmt, TestDecl, Program};
+    use baselang::{Expr, FnDecl, SourceInfo, Stmt, TestDecl, Program};
+    use bumpalo::Bump;
+    use crate::ir::FunctionKind;
 
     #[test]
     fn test_lower_simple() {
+        let arena = Bump::new();
+
+        let left = arena.alloc(Expr::Int(1));
+        let right = arena.alloc(Expr::Int(1));
+        let cmp_expr = arena.alloc(Expr::Cmp {
+            op: AstCmpOp::Eq,
+            left,
+            right,
+        });
+
+        let stmt = Stmt::Assert {
+            expr: cmp_expr,
+            info: SourceInfo {
+                line: 1,
+                col: 1,
+                source: "1 == 1",
+            },
+        };
+
+        let test = TestDecl {
+            name: "simple",
+            body: arena.alloc_slice_copy(&[stmt]),
+        };
+
         let program = Program {
-            tests: vec![TestDecl {
-                name: "simple".to_string(),
-                body: vec![Stmt::Assert {
-                    expr: Expr::Cmp {
-                        op: AstCmpOp::Eq,
-                        left: Box::new(Expr::Int(1)),
-                        right: Box::new(Expr::Int(1)),
-                    },
-                    info: SourceInfo {
-                        line: 1,
-                        col: 1,
-                        source: "1 == 1".to_string(),
-                    },
-                }],
-            }],
-            functions: vec![],
+            tests: arena.alloc_slice_copy(&[test]),
+            functions: &[],
         };
 
         let mir = lower_program(&program);
@@ -127,31 +139,38 @@ mod tests {
 
     #[test]
     fn test_lower_fn_decl() {
-        use baselang::{FnDecl, SourceInfo};
-        use crate::ir::FunctionKind;
+        let arena = Bump::new();
+
+        let left = arena.alloc(Expr::Int(1));
+        let right = arena.alloc(Expr::Int(1));
+        let cmp_expr = arena.alloc(Expr::Cmp {
+            op: AstCmpOp::Eq,
+            left,
+            right,
+        });
+
+        let stmt = Stmt::Assert {
+            expr: cmp_expr,
+            info: SourceInfo {
+                line: 1,
+                col: 1,
+                source: "1 == 1",
+            },
+        };
+
+        let fn_decl = FnDecl {
+            name: "main",
+            body: arena.alloc_slice_copy(&[stmt]),
+            info: SourceInfo {
+                line: 1,
+                col: 1,
+                source: "fn main():",
+            },
+        };
 
         let program = Program {
-            tests: vec![],
-            functions: vec![FnDecl {
-                name: "main".to_string(),
-                body: vec![Stmt::Assert {
-                    expr: Expr::Cmp {
-                        op: AstCmpOp::Eq,
-                        left: Box::new(Expr::Int(1)),
-                        right: Box::new(Expr::Int(1)),
-                    },
-                    info: SourceInfo {
-                        line: 1,
-                        col: 1,
-                        source: "1 == 1".to_string(),
-                    },
-                }],
-                info: SourceInfo {
-                    line: 1,
-                    col: 1,
-                    source: "fn main():".to_string(),
-                },
-            }],
+            tests: &[],
+            functions: arena.alloc_slice_copy(&[fn_decl]),
         };
 
         let mir = lower_program(&program);
@@ -163,37 +182,44 @@ mod tests {
 
     #[test]
     fn test_lower_test_and_fn() {
-        use baselang::{FnDecl, SourceInfo};
-        use crate::ir::FunctionKind;
+        let arena = Bump::new();
+
+        let test_expr = arena.alloc(Expr::Int(1));
+        let test_stmt = Stmt::Assert {
+            expr: test_expr,
+            info: SourceInfo {
+                line: 1,
+                col: 1,
+                source: "1",
+            },
+        };
+        let test = TestDecl {
+            name: "test1",
+            body: arena.alloc_slice_copy(&[test_stmt]),
+        };
+
+        let fn_expr = arena.alloc(Expr::Int(1));
+        let fn_stmt = Stmt::Assert {
+            expr: fn_expr,
+            info: SourceInfo {
+                line: 1,
+                col: 1,
+                source: "1",
+            },
+        };
+        let fn_decl = FnDecl {
+            name: "main",
+            body: arena.alloc_slice_copy(&[fn_stmt]),
+            info: SourceInfo {
+                line: 1,
+                col: 1,
+                source: "fn main():",
+            },
+        };
 
         let program = Program {
-            tests: vec![TestDecl {
-                name: "test1".to_string(),
-                body: vec![Stmt::Assert {
-                    expr: Expr::Int(1),
-                    info: SourceInfo {
-                        line: 1,
-                        col: 1,
-                        source: "1".to_string(),
-                    },
-                }],
-            }],
-            functions: vec![FnDecl {
-                name: "main".to_string(),
-                body: vec![Stmt::Assert {
-                    expr: Expr::Int(1),
-                    info: SourceInfo {
-                        line: 1,
-                        col: 1,
-                        source: "1".to_string(),
-                    },
-                }],
-                info: SourceInfo {
-                    line: 1,
-                    col: 1,
-                    source: "fn main():".to_string(),
-                },
-            }],
+            tests: arena.alloc_slice_copy(&[test]),
+            functions: arena.alloc_slice_copy(&[fn_decl]),
         };
 
         let mir = lower_program(&program);
