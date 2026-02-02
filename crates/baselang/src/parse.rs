@@ -24,24 +24,19 @@ pub struct ParseResult<'a> {
 /// This function:
 /// 1. Initializes the parser with syntaxlang
 /// 2. Processes the prelude to register base syntax rules
-/// 3. Parses the user source code
-/// 4. Returns the resulting AST nodes
+/// 3. Switches to user source and parses it
+/// 4. Returns the resulting AST nodes with offsets into user source
 ///
 /// Uses the parser's internal string interner for all string interning.
 pub fn parse_with_prelude<'a>(arena: &'a Bump, source: &str) -> ParseResult<'a> {
-    let combined = format!("{}\n{}", PRELUDE, source);
-    let mut parser = VMParser::new(arena, &combined);
+    // First parse the prelude to register syntax rules
+    let mut parser = VMParser::new(arena, PRELUDE);
 
     init_syntaxlang(arena, &mut parser);
     add_expr_rule(arena, &mut parser, CAT_EXPR);
     add_syntax_decl_command_rule(arena, &mut parser);
 
-    let mut nodes = Vec::new();
-    let mut errors = Vec::new();
-
-    // Track how many lines are in the prelude so we can identify user nodes
-    let prelude_lines = PRELUDE.lines().count();
-
+    // Parse prelude (syntax declarations)
     while !parser.is_eof() {
         match parser.next_command() {
             Some(cmd_node) => {
@@ -50,22 +45,11 @@ pub fn parse_with_prelude<'a>(arena: &'a Bump, source: &str) -> ParseResult<'a> 
                         .expect("syntaxDecl command must have SyntaxDecl child");
                     if syntax_decl.rule == RULE_SYNTAX_CATEGORY {
                         if let Some(name_node) = get_child_by_category(syntax_decl, CAT_IDENT) {
-                            let category_name = get_node_text(name_node, &combined);
+                            let category_name = get_node_text(name_node, PRELUDE);
                             add_expr_rule(arena, &mut parser, category_name);
                         }
                     } else {
-                        extract_and_register_rule(
-                            arena,
-                            &mut parser,
-                            syntax_decl,
-                            &combined,
-                        );
-                    }
-                } else if !cmd_node.children.is_empty() {
-                    // Only collect nodes from user code (after prelude)
-                    let node = cmd_node.children[0];
-                    if node.start.line as usize > prelude_lines {
-                        nodes.push(node);
+                        extract_and_register_rule(arena, &mut parser, syntax_decl, PRELUDE);
                     }
                 }
             }
@@ -73,15 +57,43 @@ pub fn parse_with_prelude<'a>(arena: &'a Bump, source: &str) -> ParseResult<'a> 
                 if parser.is_eof() {
                     break;
                 }
-                if let Some(err) = parser.error() {
-                    // Only report errors from user code
-                    if err.loc.line as usize > prelude_lines {
-                        errors.push(ParseError {
-                            msg: err.msg,
-                            loc: err.loc,
-                            source_line: err.source_line,
-                        });
+                parser.skip_to_next_line();
+            }
+        }
+    }
+
+    // Switch to user source - offsets start at 0, lines at 1
+    let user_source = arena.alloc_str(source);
+    parser.set_source(user_source);
+
+    let mut nodes = Vec::new();
+    let mut errors = Vec::new();
+
+    // Parse user code
+    while !parser.is_eof() {
+        match parser.next_command() {
+            Some(cmd_node) => {
+                if cmd_node.rule == RULE_SYNTAX_DECL {
+                    let syntax_decl = get_child_by_category(cmd_node, CAT_SYNTAX_DECL)
+                        .expect("syntaxDecl command must have SyntaxDecl child");
+                    if syntax_decl.rule == RULE_SYNTAX_CATEGORY {
+                        if let Some(name_node) = get_child_by_category(syntax_decl, CAT_IDENT) {
+                            let category_name = get_node_text(name_node, user_source);
+                            add_expr_rule(arena, &mut parser, category_name);
+                        }
+                    } else {
+                        extract_and_register_rule(arena, &mut parser, syntax_decl, user_source);
                     }
+                } else if !cmd_node.children.is_empty() {
+                    nodes.push(cmd_node.children[0]);
+                }
+            }
+            None => {
+                if parser.is_eof() {
+                    break;
+                }
+                if let Some(err) = parser.error() {
+                    errors.push(err);
                 }
                 parser.skip_to_next_line();
             }

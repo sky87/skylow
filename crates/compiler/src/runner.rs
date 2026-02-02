@@ -3,7 +3,7 @@
 //! Orchestrates the full pipeline: parse -> lower to BaseLang -> lower to MIR -> JIT compile -> execute.
 
 use bumpalo::Bump;
-use baselang::{lower_program, parse_with_prelude, Program, PRELUDE};
+use baselang::{lower_program, parse_with_prelude, Program};
 use jit::{compile_function, ExecutableMemory};
 use mir::lower_program as lower_to_mir;
 
@@ -79,11 +79,7 @@ impl TestRunner {
         }
 
         // Lower to BaseLang AST
-        let combined = format!("{}\n{}", PRELUDE, source);
-        let combined_ref = arena.alloc_str(&combined);
-        // +1 for the newline between prelude and source
-        let prelude_lines = PRELUDE.lines().count() as u32 + 1;
-        let program = match lower_program(&arena, &parse_result.nodes, combined_ref, prelude_lines) {
+        let program = match lower_program(&arena, &parse_result.nodes, source) {
             Ok(p) => p,
             Err(e) => {
                 return RunResult {
@@ -204,10 +200,7 @@ impl MainRunner {
         }
 
         // Lower to BaseLang AST
-        let combined = format!("{}\n{}", PRELUDE, source);
-        let combined_ref = arena.alloc_str(&combined);
-        let prelude_lines = PRELUDE.lines().count() as u32 + 1;
-        let program = match lower_program(&arena, &parse_result.nodes, combined_ref, prelude_lines) {
+        let program = match lower_program(&arena, &parse_result.nodes, source) {
             Ok(p) => p,
             Err(e) => {
                 return MainResult {
@@ -315,10 +308,7 @@ impl Compiler {
         }
 
         // Lower to BaseLang AST
-        let combined = format!("{}\n{}", PRELUDE, source);
-        let combined_ref = arena.alloc_str(&combined);
-        let prelude_lines = PRELUDE.lines().count() as u32 + 1;
-        let program = lower_program(&arena, &parse_result.nodes, combined_ref, prelude_lines)
+        let program = lower_program(&arena, &parse_result.nodes, source)
             .map_err(|e| e.to_string())?;
 
         // Find main function

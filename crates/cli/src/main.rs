@@ -261,26 +261,7 @@ fn run_emit_command(emit_type: &str, args: &[String]) {
 }
 
 fn emit_parse(source: &str, file_path: &str) {
-    use baselang::{parse_with_prelude, PRELUDE};
-
-    let arena = Bump::new();
-    let result = parse_with_prelude(&arena, source);
-
-    if !result.errors.is_empty() {
-        for err in &result.errors {
-            let adjusted_line = err.loc.line.saturating_sub(PRELUDE.lines().count() as u32 + 1);
-            eprintln!("{}:{}:{}: {}", file_path, adjusted_line, err.loc.col, err.msg);
-        }
-        process::exit(1);
-    }
-
-    for node in &result.nodes {
-        print!("{}", format_node(node, 0));
-    }
-}
-
-fn emit_ast(source: &str, file_path: &str) {
-    use baselang::{lower_program, parse_with_prelude, PRELUDE};
+    use baselang::parse_with_prelude;
 
     let arena = Bump::new();
     let result = parse_with_prelude(&arena, source);
@@ -292,10 +273,25 @@ fn emit_ast(source: &str, file_path: &str) {
         process::exit(1);
     }
 
-    let combined = format!("{}\n{}", PRELUDE, source);
-    let combined_ref = arena.alloc_str(&combined);
-    let prelude_lines = PRELUDE.lines().count() as u32 + 1;
-    let program = match lower_program(&arena, &result.nodes, combined_ref, prelude_lines) {
+    for node in &result.nodes {
+        print!("{}", format_node(node, 0));
+    }
+}
+
+fn emit_ast(source: &str, file_path: &str) {
+    use baselang::{lower_program, parse_with_prelude};
+
+    let arena = Bump::new();
+    let result = parse_with_prelude(&arena, source);
+
+    if !result.errors.is_empty() {
+        for err in &result.errors {
+            eprintln!("{}:{}:{}: {}", file_path, err.loc.line, err.loc.col, err.msg);
+        }
+        process::exit(1);
+    }
+
+    let program = match lower_program(&arena, &result.nodes, source) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("{}: {}", file_path, e);
@@ -308,7 +304,7 @@ fn emit_ast(source: &str, file_path: &str) {
 }
 
 fn emit_mir(source: &str, file_path: &str) {
-    use baselang::{lower_program, parse_with_prelude, PRELUDE};
+    use baselang::{lower_program, parse_with_prelude};
     use mir::lower_program as lower_to_mir;
 
     let arena = Bump::new();
@@ -321,10 +317,7 @@ fn emit_mir(source: &str, file_path: &str) {
         process::exit(1);
     }
 
-    let combined = format!("{}\n{}", PRELUDE, source);
-    let combined_ref = arena.alloc_str(&combined);
-    let prelude_lines = PRELUDE.lines().count() as u32 + 1;
-    let program = match lower_program(&arena, &result.nodes, combined_ref, prelude_lines) {
+    let program = match lower_program(&arena, &result.nodes, source) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("{}: {}", file_path, e);

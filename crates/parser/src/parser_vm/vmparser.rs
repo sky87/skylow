@@ -356,6 +356,19 @@ impl<'a, 'src> Parser<'a, 'src> for VMParser<'a, 'src> {
         }
     }
 
+    fn set_source(&mut self, source: &'src str) {
+        self.source = source;
+        self.pos = 0;
+        self.line = 1;
+        self.col = 1;
+        self.furthest_pos = 0;
+        self.furthest_loc = SourceLoc::new(0, 1, 1);
+        self.furthest_expected.clear();
+        self.indent_stack.clear();
+        self.indent_mode = IndentMode::None;
+        self.pending_anchor = false;
+    }
+
     fn add_rule(&mut self, rule: &'a SyntaxRule<'a>) {
         self.rules.push(rule);
         self.grammar_dirty = true;

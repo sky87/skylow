@@ -4,7 +4,7 @@
 
 use bumpalo::Bump;
 use datatest_stable::harness;
-use baselang::{lower_program, parse_with_prelude, PRELUDE};
+use baselang::{lower_program, parse_with_prelude};
 use std::path::Path;
 
 /// Format an expression for output
@@ -89,10 +89,7 @@ fn run_test(path: &Path) -> datatest_stable::Result<()> {
     }
 
     // Lower to BaseLang AST
-    let combined = format!("{}\n{}", PRELUDE, input);
-    let combined_ref = arena.alloc_str(&combined);
-    let prelude_lines = PRELUDE.lines().count() as u32 + 1; // +1 for newline between prelude and source
-    let actual = match lower_program(&arena, &parse_result.nodes, combined_ref, prelude_lines) {
+    let actual = match lower_program(&arena, &parse_result.nodes, &input) {
         Ok(program) => format_program(&program),
         Err(e) => format!("LOWER ERROR: {}", e),
     };

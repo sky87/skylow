@@ -4,7 +4,7 @@
 //! executed to verify correct behavior.
 
 use bumpalo::Bump;
-use baselang::{lower_program, parse_with_prelude, PRELUDE};
+use baselang::{lower_program, parse_with_prelude};
 use elf::generate_elf;
 use mir::lower_program as lower_to_mir;
 use std::path::Path;
@@ -22,10 +22,7 @@ fn run_test(path: &Path) -> datatest_stable::Result<()> {
     );
 
     // Lower to BaseLang
-    let combined = format!("{}\n{}", PRELUDE, source);
-    let combined_ref = arena.alloc_str(&combined);
-    let prelude_lines = PRELUDE.lines().count() as u32 + 1;
-    let program = lower_program(&arena, &parse_result.nodes, combined_ref, prelude_lines)
+    let program = lower_program(&arena, &parse_result.nodes, &source)
         .expect("Lowering failed");
 
     // Lower to MIR

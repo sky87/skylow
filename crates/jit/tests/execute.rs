@@ -4,7 +4,7 @@
 
 use bumpalo::Bump;
 use datatest_stable::harness;
-use baselang::{lower_program as lower_to_ast, parse_with_prelude, PRELUDE};
+use baselang::{lower_program as lower_to_ast, parse_with_prelude};
 use jit::{compile_function, ExecutableMemory};
 use mir::lower_program as lower_to_mir;
 use std::path::Path;
@@ -36,10 +36,7 @@ fn run_test(path: &Path) -> datatest_stable::Result<()> {
     }
 
     // Lower to BaseLang AST
-    let combined = format!("{}\n{}", PRELUDE, input);
-    let combined_ref = arena.alloc_str(&combined);
-    let prelude_lines = PRELUDE.lines().count() as u32 + 1; // +1 for newline between prelude and source
-    let ast = match lower_to_ast(&arena, &parse_result.nodes, combined_ref, prelude_lines) {
+    let ast = match lower_to_ast(&arena, &parse_result.nodes, &input) {
         Ok(program) => program,
         Err(e) => {
             let actual = format!("LOWER ERROR: {}", e);

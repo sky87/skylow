@@ -29,22 +29,21 @@ impl std::error::Error for LowerError {}
 /// The nodes should come from parsing with the BaseLang prelude,
 /// which means they'll be test declarations at the top level.
 ///
-/// `line_offset` should be the number of lines in the prelude, so that
-/// line numbers in error messages are relative to the user's source file.
+/// Line numbers in the nodes are already adjusted to be relative to
+/// the user's source file (the parser resets line info after the prelude).
 pub fn lower_program<'a>(
     arena: &'a Bump,
     nodes: &[&SyntaxNode<'_>],
     source: &'a str,
-    line_offset: u32,
 ) -> Result<Program<'a>, LowerError> {
     let mut tests = Vec::new();
     let mut functions = Vec::new();
 
     for node in nodes {
         if node.rule == "test" && node.category == "Stmt" {
-            tests.push(lower_test(arena, node, source, line_offset)?);
+            tests.push(lower_test(arena, node, source)?);
         } else if node.rule == "fn" && node.category == "Stmt" {
-            functions.push(lower_fn(arena, node, source, line_offset)?);
+            functions.push(lower_fn(arena, node, source)?);
         }
         // Ignore other top-level nodes for now
     }
@@ -59,7 +58,6 @@ fn lower_test<'a>(
     arena: &'a Bump,
     node: &SyntaxNode<'_>,
     source: &'a str,
-    line_offset: u32,
 ) -> Result<TestDecl<'a>, LowerError> {
     // Test node structure: test |> "test" [^\n:]+ ":" >> Stmt+
     // The [^\n:]+ captures individual characters as _char:_charset nodes
@@ -70,7 +68,7 @@ fn lower_test<'a>(
 
     for child in node.children {
         if child.category == "Stmt" {
-            body.push(lower_stmt(arena, child, source, line_offset)?);
+            body.push(lower_stmt(arena, child, source)?);
         } else if child.rule == "_charset" && child.category == "_char" {
             // Character set captures individual chars
             if let Some(text) = child.text {
@@ -93,7 +91,6 @@ fn lower_fn<'a>(
     arena: &'a Bump,
     node: &SyntaxNode<'_>,
     source: &'a str,
-    line_offset: u32,
 ) -> Result<FnDecl<'a>, LowerError> {
     // Function node structure: fn |> "fn" [a-z_][a-z0-9_]* "()" ":" >> Stmt+
     // The name is captured by the character class patterns
@@ -103,7 +100,7 @@ fn lower_fn<'a>(
 
     for child in node.children {
         if child.category == "Stmt" {
-            body.push(lower_stmt(arena, child, source, line_offset)?);
+            body.push(lower_stmt(arena, child, source)?);
         } else if child.rule == "_charset" && child.category == "_char" {
             // Character set captures individual chars
             if let Some(text) = child.text {
@@ -118,13 +115,8 @@ fn lower_fn<'a>(
 
     // Capture source info for the function declaration
     let (start, line, col, end) = get_full_span(node);
-    let adjusted_line = line.saturating_sub(line_offset);
     let fn_text = source.get(start..end).unwrap_or("");
-    let info = SourceInfo {
-        line: adjusted_line,
-        col,
-        source: fn_text,
-    };
+    let info = SourceInfo { line, col, source: fn_text };
 
     Ok(FnDecl {
         name,
@@ -137,14 +129,13 @@ fn lower_stmt<'a>(
     arena: &'a Bump,
     node: &SyntaxNode<'_>,
     source: &'a str,
-    line_offset: u32,
 ) -> Result<Stmt<'a>, LowerError> {
     match node.rule {
         "assert" => {
             // assert "assert" "(" Expr ")"
             let expr_node = find_child_by_category(node, "Expr").ok_or_else(|| LowerError {
                 msg: "assert missing expression".to_string(),
-                line: node.start.line.saturating_sub(line_offset),
+                line: node.start.line,
                 col: node.start.col,
             })?;
             let expr = lower_expr(arena, expr_node, source)?;
@@ -152,14 +143,8 @@ fn lower_stmt<'a>(
             // Capture source info for error reporting
             // Use the full span of the expression, including nested children
             let (start, line, col, end) = get_full_span(expr_node);
-            // Adjust line number to be relative to user's file, not combined source
-            let adjusted_line = line.saturating_sub(line_offset);
             let expr_text = &source[start..end];
-            let info = SourceInfo {
-                line: adjusted_line,
-                col,
-                source: expr_text,
-            };
+            let info = SourceInfo { line, col, source: expr_text };
 
             Ok(Stmt::Assert {
                 expr: arena.alloc(expr),
@@ -168,7 +153,7 @@ fn lower_stmt<'a>(
         }
         _ => Err(LowerError {
             msg: format!("unknown statement rule: {}", node.rule),
-            line: node.start.line.saturating_sub(line_offset),
+            line: node.start.line,
             col: node.start.col,
         }),
     }
@@ -323,11 +308,7 @@ test simple:
         let result = parse_with_prelude(&arena, source);
         assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
 
-        // We need access to the combined source for lowering
-        let combined = format!("{}\n{}", crate::PRELUDE, source);
-        let combined_ref = arena.alloc_str(&combined);
-        let prelude_lines = crate::PRELUDE.lines().count() as u32 + 1; // +1 for newline between prelude and source
-        let program = lower_program(&arena, &result.nodes, combined_ref, prelude_lines).expect("lowering failed");
+        let program = lower_program(&arena, &result.nodes, source).expect("lowering failed");
 
         assert_eq!(program.tests.len(), 1);
         assert_eq!(program.tests[0].name, "simple");
@@ -345,10 +326,7 @@ test arithmetic:
         let result = parse_with_prelude(&arena, source);
         assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
 
-        let combined = format!("{}\n{}", crate::PRELUDE, source);
-        let combined_ref = arena.alloc_str(&combined);
-        let prelude_lines = crate::PRELUDE.lines().count() as u32 + 1; // +1 for newline between prelude and source
-        let program = lower_program(&arena, &result.nodes, combined_ref, prelude_lines).expect("lowering failed");
+        let program = lower_program(&arena, &result.nodes, source).expect("lowering failed");
 
         assert_eq!(program.tests.len(), 1);
         assert_eq!(program.tests[0].name, "arithmetic");
@@ -381,10 +359,7 @@ test comparisons:
         let result = parse_with_prelude(&arena, source);
         assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
 
-        let combined = format!("{}\n{}", crate::PRELUDE, source);
-        let combined_ref = arena.alloc_str(&combined);
-        let prelude_lines = crate::PRELUDE.lines().count() as u32 + 1; // +1 for newline between prelude and source
-        let program = lower_program(&arena, &result.nodes, combined_ref, prelude_lines).expect("lowering failed");
+        let program = lower_program(&arena, &result.nodes, source).expect("lowering failed");
 
         assert_eq!(program.tests.len(), 1);
         assert_eq!(program.tests[0].body.len(), 6);
@@ -400,10 +375,7 @@ fn main():
         let result = parse_with_prelude(&arena, source);
         assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
 
-        let combined = format!("{}\n{}", crate::PRELUDE, source);
-        let combined_ref = arena.alloc_str(&combined);
-        let prelude_lines = crate::PRELUDE.lines().count() as u32 + 1;
-        let program = lower_program(&arena, &result.nodes, combined_ref, prelude_lines).expect("lowering failed");
+        let program = lower_program(&arena, &result.nodes, source).expect("lowering failed");
 
         assert_eq!(program.tests.len(), 0);
         assert_eq!(program.functions.len(), 1);
@@ -424,10 +396,7 @@ test simple:
         let result = parse_with_prelude(&arena, source);
         assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
 
-        let combined = format!("{}\n{}", crate::PRELUDE, source);
-        let combined_ref = arena.alloc_str(&combined);
-        let prelude_lines = crate::PRELUDE.lines().count() as u32 + 1;
-        let program = lower_program(&arena, &result.nodes, combined_ref, prelude_lines).expect("lowering failed");
+        let program = lower_program(&arena, &result.nodes, source).expect("lowering failed");
 
         assert_eq!(program.tests.len(), 1);
         assert_eq!(program.tests[0].name, "simple");

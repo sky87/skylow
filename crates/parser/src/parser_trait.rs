@@ -34,6 +34,12 @@ pub trait Parser<'a, 'src>: Sized {
     /// Skip to the next line (for error recovery).
     fn skip_to_next_line(&mut self);
 
+    /// Switch to a new source while keeping registered rules.
+    ///
+    /// Resets position to offset 0, line 1, col 1.
+    /// Used after parsing a prelude to parse user code with correct offsets.
+    fn set_source(&mut self, source: &'src str);
+
     // =========================================================================
     // Rule management
     // =========================================================================
