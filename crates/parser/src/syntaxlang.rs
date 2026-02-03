@@ -56,7 +56,7 @@ const RULE_SYNTAX_NO_CATEGORY: &str = "syntaxNoCategory";
 /// allowing it to work with both `InterpretedParser` and `VMParser`.
 ///
 /// Uses the parser's internal string interner for all string interning.
-pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
+pub fn init_syntaxlang<'a, P: Parser<'a>>(
     arena: &'a Bump,
     parser: &mut P,
 ) {
@@ -517,11 +517,11 @@ pub fn init_syntaxlang<'a, 'src, P: Parser<'a, 'src>>(
 /// This function is generic over any parser implementing the `Parser` trait.
 ///
 /// Uses the parser's internal string interner for all string interning.
-pub fn extract_and_register_rule<'a, 's, P: Parser<'a, 's>>(
+pub fn extract_and_register_rule<'a, P: Parser<'a>>(
     arena: &'a Bump,
     parser: &mut P,
     syntax_decl: &'a SyntaxNode<'a>,
-    source: &'s str,
+    source: &'a str,
 ) -> Option<&'a SyntaxRule<'a>> {
     // Get rule name from first identifier
     let idents = get_children_by_category(syntax_decl, CAT_IDENT);
@@ -588,7 +588,7 @@ pub fn extract_and_register_rule<'a, 's, P: Parser<'a, 's>>(
 /// This function is generic over any parser implementing the `Parser` trait.
 ///
 /// Uses the parser's internal string interner for all string interning.
-pub fn add_expr_rule<'a, 'src, P: Parser<'a, 'src>>(
+pub fn add_expr_rule<'a, P: Parser<'a>>(
     arena: &'a Bump,
     parser: &mut P,
     category: &str,
@@ -624,7 +624,7 @@ pub fn add_expr_rule<'a, 'src, P: Parser<'a, 'src>>(
 /// This function is generic over any parser implementing the `Parser` trait.
 ///
 /// Uses the parser's internal string interner for all string interning.
-pub fn add_syntax_decl_command_rule<'a, 'src, P: Parser<'a, 'src>>(
+pub fn add_syntax_decl_command_rule<'a, P: Parser<'a>>(
     arena: &'a Bump,
     parser: &mut P,
 ) {
@@ -866,8 +866,8 @@ pub fn get_node_text<'a>(node: &'a SyntaxNode<'a>, source: &'a str) -> &'a str {
         return text;
     }
     // For branch nodes, extract text from source using span
-    let start = node.start.offset as usize;
-    let end = node.end_offset as usize;
+    let start = node.start().offset as usize;
+    let end = node.end_offset() as usize;
     &source[start..end]
 }
 

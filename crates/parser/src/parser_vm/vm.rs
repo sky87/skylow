@@ -3,9 +3,9 @@
 use bumpalo::{collections::Vec as BumpVec, Bump};
 use common::debug::{create_logger, Logger};
 use common::intern::StringInterner;
-use common::{log, log_detail, log_fail, log_success};
+use common::{log, log_detail, log_fail, log_success, SourceInfo, SourceLoc, SourceModule};
 
-use crate::node::{SourceLoc, SyntaxNode};
+use crate::node::SyntaxNode;
 use crate::syntax::CharClass;
 
 use super::grammar::CompiledGrammar;
@@ -66,12 +66,14 @@ struct NodeBuilder<'a> {
 }
 
 /// Parsing Virtual Machine
-pub struct VM<'a, 'src> {
+pub struct VM<'a> {
     // Bytecode
     grammar: &'a CompiledGrammar<'a>,
 
-    // Input
-    source: &'src str,
+    // Source module
+    module: &'a SourceModule<'a>,
+    // Cached source text (extracted from module for efficient access)
+    source: &'a str,
     pub pos: usize,
     pub line: u32,
     pub col: u32,
@@ -109,10 +111,13 @@ pub struct VM<'a, 'src> {
     log: Logger,
 }
 
-impl<'a, 'src> VM<'a, 'src> {
-    pub fn new(arena: &'a Bump, grammar: &'a CompiledGrammar<'a>, source: &'src str) -> Self {
+impl<'a> VM<'a> {
+    pub fn new(arena: &'a Bump, grammar: &'a CompiledGrammar<'a>, module: &'a SourceModule<'a>) -> Self {
+        // Cache source text for efficient access (modules are immutable)
+        let source = module.text;
         Self {
             grammar,
+            module,
             source,
             pos: 0,
             line: 1,
@@ -139,7 +144,7 @@ impl<'a, 'src> VM<'a, 'src> {
     // -------------------------------------------------------------------------
 
     #[inline]
-    fn remaining(&self) -> &'src str {
+    fn remaining(&self) -> &'a str {
         &self.source[self.pos..]
     }
 
@@ -166,6 +171,11 @@ impl<'a, 'src> VM<'a, 'src> {
 
     fn current_loc(&self) -> SourceLoc {
         SourceLoc::new(self.pos as u32, self.line, self.col)
+    }
+
+    /// Create a SourceInfo for the given span.
+    fn make_info(&self, start: SourceLoc, end: u32) -> SourceInfo<'a> {
+        SourceInfo::new(self.module, start, end)
     }
 
     // -------------------------------------------------------------------------
@@ -572,11 +582,11 @@ impl<'a, 'src> VM<'a, 'src> {
                     if self.match_literal(oper) {
                         let lit_str = self.grammar.strings[oper as usize];
                         let text = self.arena.alloc_str(lit_str);
+                        let info = self.make_info(lit_start, self.pos as u32);
                         let node = self.arena.alloc(SyntaxNode::leaf(
                             self.strings.intern(NODE_LITERAL),
                             self.strings.intern(NODE_LITERAL),
-                            lit_start,
-                            self.pos as u32,
+                            info,
                             text,
                         ));
                         children.push(node);
@@ -591,11 +601,11 @@ impl<'a, 'src> VM<'a, 'src> {
                     if let Some(c) = self.match_char_class(oper) {
                         let mut buf = [0u8; 4];
                         let text = self.arena.alloc_str(c.encode_utf8(&mut buf));
+                        let info = self.make_info(char_start, self.pos as u32);
                         let node = self.arena.alloc(SyntaxNode::leaf(
                             self.strings.intern(NODE_CHAR),
                             self.strings.intern(NODE_CHARCLASS),
-                            char_start,
-                            self.pos as u32,
+                            info,
                             text,
                         ));
                         children.push(node);
@@ -610,11 +620,11 @@ impl<'a, 'src> VM<'a, 'src> {
                     if let Some(c) = self.match_char_set(oper) {
                         let mut buf = [0u8; 4];
                         let text = self.arena.alloc_str(c.encode_utf8(&mut buf));
+                        let info = self.make_info(char_start, self.pos as u32);
                         let node = self.arena.alloc(SyntaxNode::leaf(
                             self.strings.intern(NODE_CHAR),
                             self.strings.intern(NODE_CHARSET),
-                            char_start,
-                            self.pos as u32,
+                            info,
                             text,
                         ));
                         children.push(node);
@@ -646,11 +656,11 @@ impl<'a, 'src> VM<'a, 'src> {
                 op::INDENT_ANCHOR => {
                     self.pending_anchor = true;
                     let node_start = self.current_loc();
+                    let info = self.make_info(node_start, self.pos as u32);
                     let node = self.arena.alloc(SyntaxNode::leaf(
                         self.strings.intern(NODE_INDENT),
                         self.strings.intern(NODE_ANCHOR),
-                        node_start,
-                        self.pos as u32,
+                        info,
                         "",
                     ));
                     children.push(node);
@@ -663,22 +673,22 @@ impl<'a, 'src> VM<'a, 'src> {
                         INDENT_NONE => self.indent_mode = IndentMode::None,
                         INDENT_LAX => {
                             self.indent_mode = IndentMode::Lax;
+                            let info = self.make_info(node_start, self.pos as u32);
                             let node = self.arena.alloc(SyntaxNode::leaf(
                                 self.strings.intern(NODE_INDENT),
                                 self.strings.intern(NODE_LAX),
-                                node_start,
-                                self.pos as u32,
+                                info,
                                 "",
                             ));
                             children.push(node);
                         }
                         INDENT_STRICT => {
                             self.indent_mode = IndentMode::Strict;
+                            let info = self.make_info(node_start, self.pos as u32);
                             let node = self.arena.alloc(SyntaxNode::leaf(
                                 self.strings.intern(NODE_INDENT),
                                 self.strings.intern(NODE_STRICT),
-                                node_start,
-                                self.pos as u32,
+                                info,
                                 "",
                             ));
                             children.push(node);
@@ -697,11 +707,11 @@ impl<'a, 'src> VM<'a, 'src> {
                     // Add whitespace node if we consumed whitespace
                     if self.pos > start_pos {
                         let ws_start = SourceLoc::new(start_pos as u32, self.line, self.col);
+                        let info = self.make_info(ws_start, self.pos as u32);
                         let node = self.arena.alloc(SyntaxNode::leaf(
                             self.strings.intern(NODE_WS),
                             self.strings.intern(NODE_WS),
-                            ws_start,
-                            self.pos as u32,
+                            info,
                             "",
                         ));
                         children.push(node);
@@ -764,11 +774,11 @@ impl<'a, 'src> VM<'a, 'src> {
 
         // Build final node
         let children_slice = children.into_bump_slice();
+        let info = self.make_info(start, self.pos as u32);
         let node = self.arena.alloc(SyntaxNode::branch(
             rule.category,
             rule.name,
-            start,
-            self.pos as u32,
+            info,
             children_slice,
         ));
 

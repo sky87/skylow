@@ -104,7 +104,7 @@ fn run_test(path: &Path) -> datatest_stable::Result<()> {
     }
 
     // Lower to BaseLang AST
-    let ast = match lower_to_ast(&arena, &parse_result.nodes, &input) {
+    let ast = match lower_to_ast(&arena, &parse_result.nodes) {
         Ok(program) => program,
         Err(e) => {
             let actual = format!("LOWER ERROR: {}", e);

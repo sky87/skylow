@@ -8,6 +8,7 @@ baselang.workspace = true
 
 [dev-dependencies]
 bumpalo.workspace = true
+common.workspace = true
 datatest-stable.workspace = true
 
 [[test]]

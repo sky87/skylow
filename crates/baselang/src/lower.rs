@@ -4,9 +4,10 @@
 //! into the typed BaseLang AST using arena allocation.
 
 use bumpalo::Bump;
+use common::SourceLoc;
 use parser::SyntaxNode;
 
-use crate::ast::{BinOp, CmpOp, Expr, FnDecl, Program, SourceInfo, Stmt, TestDecl};
+use crate::ast::{BinOp, CmpOp, Decl, DeclKind, Expr, ExprKind, Program, SourceInfo, Stmt, StmtKind};
 
 /// Error during lowering
 #[derive(Debug, Clone, PartialEq)]
@@ -27,34 +28,31 @@ impl std::error::Error for LowerError {}
 /// Lowering context that holds shared state for the lowering pass.
 struct Lowerer<'a> {
     arena: &'a Bump,
-    source: &'a str,
 }
 
 impl<'a> Lowerer<'a> {
-    fn new(arena: &'a Bump, source: &'a str) -> Self {
-        Self { arena, source }
+    fn new(arena: &'a Bump) -> Self {
+        Self { arena }
     }
 
-    fn lower_program(&self, nodes: &[&SyntaxNode<'_>]) -> Result<Program<'a>, LowerError> {
-        let mut tests = Vec::new();
-        let mut functions = Vec::new();
+    fn lower_program(&self, nodes: &[&SyntaxNode<'a>]) -> Result<Program<'a>, LowerError> {
+        let mut decls = Vec::new();
 
         for node in nodes {
             if node.rule == "test" && node.category == "Stmt" {
-                tests.push(self.lower_test(node)?);
+                decls.push(self.lower_test(node)?);
             } else if node.rule == "fn" && node.category == "Stmt" {
-                functions.push(self.lower_fn(node)?);
+                decls.push(self.lower_fn(node)?);
             }
             // Ignore other top-level nodes for now
         }
 
         Ok(Program {
-            tests: self.arena.alloc_slice_copy(&tests),
-            functions: self.arena.alloc_slice_copy(&functions),
+            decls: self.arena.alloc_slice_copy(&decls),
         })
     }
 
-    fn lower_test(&self, node: &SyntaxNode<'_>) -> Result<TestDecl<'a>, LowerError> {
+    fn lower_test(&self, node: &SyntaxNode<'a>) -> Result<Decl<'a>, LowerError> {
         // Test node structure: test |> "test" [^\n:]+ ":" >> Stmt+
         // The [^\n:]+ captures individual characters as _char:_charset nodes
         // We need to collect them and accumulate the name
@@ -77,13 +75,21 @@ impl<'a> Lowerer<'a> {
         let name_string: String = name_chars.concat();
         let name = self.arena.alloc_str(name_string.trim());
 
-        Ok(TestDecl {
-            name,
-            body: self.arena.alloc_slice_copy(&body),
+        // Capture source info for the test declaration
+        let (start_offset, line, col, end) = get_full_span(node);
+        let start = SourceLoc::new(start_offset as u32, line, col);
+        let info = SourceInfo::new(node.info.module, start, end as u32);
+
+        Ok(Decl {
+            info,
+            kind: DeclKind::Test {
+                name,
+                body: self.arena.alloc_slice_copy(&body),
+            },
         })
     }
 
-    fn lower_fn(&self, node: &SyntaxNode<'_>) -> Result<FnDecl<'a>, LowerError> {
+    fn lower_fn(&self, node: &SyntaxNode<'a>) -> Result<Decl<'a>, LowerError> {
         // Function node structure: fn |> "fn" [a-z_][a-z0-9_]* "()" ":" >> Stmt+
         // The name is captured by the character class patterns
 
@@ -106,57 +112,66 @@ impl<'a> Lowerer<'a> {
         let name = self.arena.alloc_str(name_string.trim());
 
         // Capture source info for the function declaration
-        let (start, line, col, end) = get_full_span(node);
-        let fn_text = self.source.get(start..end).unwrap_or("");
-        let info = SourceInfo { line, col, source: fn_text };
+        let (start_offset, line, col, end) = get_full_span(node);
+        let start = SourceLoc::new(start_offset as u32, line, col);
+        let info = SourceInfo::new(node.info.module, start, end as u32);
 
-        Ok(FnDecl {
-            name,
-            body: self.arena.alloc_slice_copy(&body),
+        Ok(Decl {
             info,
+            kind: DeclKind::Fn {
+                name,
+                body: self.arena.alloc_slice_copy(&body),
+            },
         })
     }
 
-    fn lower_stmt(&self, node: &SyntaxNode<'_>) -> Result<Stmt<'a>, LowerError> {
+    fn lower_stmt(&self, node: &'a SyntaxNode<'a>) -> Result<Stmt<'a>, LowerError> {
         match node.rule {
             "assert" => {
                 // assert "assert" "(" Expr ")"
                 let expr_node = find_child_by_category(node, "Expr").ok_or_else(|| LowerError {
                     msg: "assert missing expression".to_string(),
-                    line: node.start.line,
-                    col: node.start.col,
+                    line: node.start().line,
+                    col: node.start().col,
                 })?;
                 let expr = self.lower_expr(expr_node)?;
 
                 // Capture source info for error reporting
                 // Use the full span of the expression, including nested children
-                let (start, line, col, end) = get_full_span(expr_node);
-                let expr_text = &self.source[start..end];
-                let info = SourceInfo { line, col, source: expr_text };
+                let (start_offset, line, col, end) = get_full_span(expr_node);
+                let start = SourceLoc::new(start_offset as u32, line, col);
+                let info = SourceInfo::new(node.info.module, start, end as u32);
 
-                Ok(Stmt::Assert {
-                    expr: self.arena.alloc(expr),
+                Ok(Stmt {
                     info,
+                    kind: StmtKind::Assert {
+                        expr: self.arena.alloc(expr),
+                    },
                 })
             }
             _ => Err(LowerError {
                 msg: format!("unknown statement rule: {}", node.rule),
-                line: node.start.line,
-                col: node.start.col,
+                line: node.start().line,
+                col: node.start().col,
             }),
         }
     }
 
-    fn lower_expr(&self, node: &SyntaxNode<'_>) -> Result<Expr<'a>, LowerError> {
-        match node.rule {
+    fn lower_expr(&self, node: &'a SyntaxNode<'a>) -> Result<Expr<'a>, LowerError> {
+        // Capture source info for this expression
+        let (start_offset, line, col, end) = get_full_span(node);
+        let start = SourceLoc::new(start_offset as u32, line, col);
+        let info = SourceInfo::new(node.info.module, start, end as u32);
+
+        let kind = match node.rule {
             "int" => {
                 let text = self.get_text(node);
                 let value: i64 = text.parse().map_err(|_| LowerError {
                     msg: format!("invalid integer: {}", text),
-                    line: node.start.line,
-                    col: node.start.col,
+                    line: node.start().line,
+                    col: node.start().col,
                 })?;
-                Ok(Expr::Int(value))
+                ExprKind::Int(value)
             }
             "add" | "sub" | "mul" | "div" => {
                 let op = match node.rule {
@@ -167,11 +182,11 @@ impl<'a> Lowerer<'a> {
                     _ => unreachable!(),
                 };
                 let (left, right) = self.get_binary_operands(node)?;
-                Ok(Expr::BinOp {
+                ExprKind::BinOp {
                     op,
                     left: self.arena.alloc(left),
                     right: self.arena.alloc(right),
-                })
+                }
             }
             "eq" | "neq" | "lt" | "lte" | "gt" | "gte" => {
                 let op = match node.rule {
@@ -184,29 +199,33 @@ impl<'a> Lowerer<'a> {
                     _ => unreachable!(),
                 };
                 let (left, right) = self.get_binary_operands(node)?;
-                Ok(Expr::Cmp {
+                ExprKind::Cmp {
                     op,
                     left: self.arena.alloc(left),
                     right: self.arena.alloc(right),
-                })
+                }
             }
             "paren" => {
                 let inner = find_child_by_category(node, "Expr").ok_or_else(|| LowerError {
                     msg: "paren missing inner expression".to_string(),
-                    line: node.start.line,
-                    col: node.start.col,
+                    line: node.start().line,
+                    col: node.start().col,
                 })?;
-                Ok(Expr::Paren(self.arena.alloc(self.lower_expr(inner)?)))
+                ExprKind::Paren(self.arena.alloc(self.lower_expr(inner)?))
             }
-            _ => Err(LowerError {
-                msg: format!("unknown expression rule: {}", node.rule),
-                line: node.start.line,
-                col: node.start.col,
-            }),
-        }
+            _ => {
+                return Err(LowerError {
+                    msg: format!("unknown expression rule: {}", node.rule),
+                    line: node.start().line,
+                    col: node.start().col,
+                })
+            }
+        };
+
+        Ok(Expr { info, kind })
     }
 
-    fn get_binary_operands(&self, node: &SyntaxNode<'_>) -> Result<(Expr<'a>, Expr<'a>), LowerError> {
+    fn get_binary_operands(&self, node: &SyntaxNode<'a>) -> Result<(Expr<'a>, Expr<'a>), LowerError> {
         let expr_children: Vec<_> = node
             .children
             .iter()
@@ -220,8 +239,8 @@ impl<'a> Lowerer<'a> {
                     node.rule,
                     expr_children.len()
                 ),
-                line: node.start.line,
-                col: node.start.col,
+                line: node.start().line,
+                col: node.start().col,
             });
         }
 
@@ -234,9 +253,7 @@ impl<'a> Lowerer<'a> {
         if let Some(text) = node.text {
             text
         } else {
-            let start = node.start.offset as usize;
-            let end = node.end_offset as usize;
-            &self.source[start..end]
+            node.info.module.slice(node.start().offset as usize, node.end_offset() as usize)
         }
     }
 }
@@ -250,10 +267,9 @@ impl<'a> Lowerer<'a> {
 /// the user's source file (the parser resets line info after the prelude).
 pub fn lower_program<'a>(
     arena: &'a Bump,
-    nodes: &[&SyntaxNode<'_>],
-    source: &'a str,
+    nodes: &[&SyntaxNode<'a>],
 ) -> Result<Program<'a>, LowerError> {
-    Lowerer::new(arena, source).lower_program(nodes)
+    Lowerer::new(arena).lower_program(nodes)
 }
 
 fn find_child_by_category<'a>(
@@ -268,10 +284,10 @@ fn find_child_by_category<'a>(
 /// This handles left-recursive rules where the node's start might not
 /// include the left operand.
 fn get_full_span(node: &SyntaxNode<'_>) -> (usize, u32, u32, usize) {
-    let mut start = node.start.offset as usize;
-    let mut line = node.start.line;
-    let mut col = node.start.col;
-    let mut end = node.end_offset as usize;
+    let mut start = node.start().offset as usize;
+    let mut line = node.start().line;
+    let mut col = node.start().col;
+    let mut end = node.end_offset() as usize;
 
     // Check children for earlier start or later end
     for child in node.children {
@@ -293,7 +309,10 @@ fn get_full_span(node: &SyntaxNode<'_>) -> (usize, u32, u32, usize) {
 mod tests {
     use super::*;
     use crate::parse_with_prelude;
+    use crate::ast::DeclKind;
+    use common::{SourceInfo, SourceModule};
     use indoc::indoc;
+    use parser::SyntaxNode;
 
     #[test]
     fn test_lower_simple_test() {
@@ -305,11 +324,16 @@ mod tests {
         let result = parse_with_prelude(&arena, source);
         assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
 
-        let program = lower_program(&arena, &result.nodes, source).expect("lowering failed");
+        let program = lower_program(&arena, &result.nodes).expect("lowering failed");
 
-        assert_eq!(program.tests.len(), 1);
-        assert_eq!(program.tests[0].name, "simple");
-        assert_eq!(program.tests[0].body.len(), 1);
+        assert_eq!(program.decls.len(), 1);
+        match &program.decls[0].kind {
+            DeclKind::Test { name, body } => {
+                assert_eq!(*name, "simple");
+                assert_eq!(body.len(), 1);
+            }
+            _ => panic!("expected Test declaration"),
+        }
     }
 
     #[test]
@@ -323,11 +347,16 @@ mod tests {
         let result = parse_with_prelude(&arena, source);
         assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
 
-        let program = lower_program(&arena, &result.nodes, source).expect("lowering failed");
+        let program = lower_program(&arena, &result.nodes).expect("lowering failed");
 
-        assert_eq!(program.tests.len(), 1);
-        assert_eq!(program.tests[0].name, "arithmetic");
-        assert_eq!(program.tests[0].body.len(), 2);
+        assert_eq!(program.decls.len(), 1);
+        match &program.decls[0].kind {
+            DeclKind::Test { name, body } => {
+                assert_eq!(*name, "arithmetic");
+                assert_eq!(body.len(), 2);
+            }
+            _ => panic!("expected Test declaration"),
+        }
     }
 
     #[test]
@@ -356,10 +385,15 @@ mod tests {
         let result = parse_with_prelude(&arena, source);
         assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
 
-        let program = lower_program(&arena, &result.nodes, source).expect("lowering failed");
+        let program = lower_program(&arena, &result.nodes).expect("lowering failed");
 
-        assert_eq!(program.tests.len(), 1);
-        assert_eq!(program.tests[0].body.len(), 6);
+        assert_eq!(program.decls.len(), 1);
+        match &program.decls[0].kind {
+            DeclKind::Test { body, .. } => {
+                assert_eq!(body.len(), 6);
+            }
+            _ => panic!("expected Test declaration"),
+        }
     }
 
     #[test]
@@ -372,12 +406,16 @@ mod tests {
         let result = parse_with_prelude(&arena, source);
         assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
 
-        let program = lower_program(&arena, &result.nodes, source).expect("lowering failed");
+        let program = lower_program(&arena, &result.nodes).expect("lowering failed");
 
-        assert_eq!(program.tests.len(), 0);
-        assert_eq!(program.functions.len(), 1);
-        assert_eq!(program.functions[0].name, "main");
-        assert_eq!(program.functions[0].body.len(), 1);
+        assert_eq!(program.decls.len(), 1);
+        match &program.decls[0].kind {
+            DeclKind::Fn { name, body } => {
+                assert_eq!(*name, "main");
+                assert_eq!(body.len(), 1);
+            }
+            _ => panic!("expected Fn declaration"),
+        }
     }
 
     #[test]
@@ -393,11 +431,81 @@ mod tests {
         let result = parse_with_prelude(&arena, source);
         assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
 
-        let program = lower_program(&arena, &result.nodes, source).expect("lowering failed");
+        let program = lower_program(&arena, &result.nodes).expect("lowering failed");
 
-        assert_eq!(program.tests.len(), 1);
-        assert_eq!(program.tests[0].name, "simple");
-        assert_eq!(program.functions.len(), 1);
-        assert_eq!(program.functions[0].name, "main");
+        assert_eq!(program.decls.len(), 2);
+        // First is fn, second is test (order preserved)
+        assert!(matches!(program.decls[0].kind, DeclKind::Fn { .. }));
+        assert!(matches!(program.decls[1].kind, DeclKind::Test { .. }));
+    }
+
+    #[test]
+    fn test_lower_integer_overflow() {
+        let arena = Bump::new();
+        // Integer too large to fit in i64
+        let source = indoc! {"
+            test overflow:
+              assert(99999999999999999999999999999999 == 1)
+        "};
+        let result = parse_with_prelude(&arena, source);
+        assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
+
+        let err = lower_program(&arena, &result.nodes).unwrap_err();
+        assert!(err.msg.contains("invalid integer"), "expected integer error, got: {}", err.msg);
+    }
+
+    #[test]
+    fn test_lower_assert_missing_expr() {
+        // Create a malformed assert node without an Expr child
+        let arena = Bump::new();
+        let source = arena.alloc_str("assert()");
+        let module = arena.alloc(SourceModule::synthetic(source, "<test>"));
+        let info = SourceInfo::new(module, SourceLoc::new(0, 1, 1), 8);
+
+        // Create an assert node with no children (malformed)
+        let assert_node = arena.alloc(SyntaxNode::branch("Stmt", "assert", info, &[]));
+
+        let lowerer = Lowerer::new(&arena);
+        let err = lowerer.lower_stmt(assert_node).unwrap_err();
+        assert!(err.msg.contains("assert missing expression"));
+    }
+
+    #[test]
+    fn test_lower_paren_missing_expr() {
+        // Create a malformed paren node without an Expr child
+        let arena = Bump::new();
+        let source = arena.alloc_str("()");
+        let module = arena.alloc(SourceModule::synthetic(source, "<test>"));
+        let info = SourceInfo::new(module, SourceLoc::new(0, 1, 1), 2);
+
+        // Create a paren node with no children (malformed)
+        let paren_node = arena.alloc(SyntaxNode::branch("Expr", "paren", info, &[]));
+
+        let lowerer = Lowerer::new(&arena);
+        let err = lowerer.lower_expr(paren_node).unwrap_err();
+        assert!(err.msg.contains("paren missing inner expression"));
+    }
+
+    #[test]
+    fn test_program_tests_iterator() {
+        let arena = Bump::new();
+        let source = indoc! {"
+            fn main():
+              assert(1 == 1)
+
+            test a:
+              assert(1 == 1)
+
+            test b:
+              assert(2 == 2)
+        "};
+        let result = parse_with_prelude(&arena, source);
+        let program = lower_program(&arena, &result.nodes).expect("lowering failed");
+
+        let tests: Vec<_> = program.tests().collect();
+        assert_eq!(tests.len(), 2);
+
+        let functions: Vec<_> = program.functions().collect();
+        assert_eq!(functions.len(), 1);
     }
 }

@@ -3,9 +3,16 @@
 //! Orchestrates the full pipeline: parse -> lower to BaseLang -> lower to MIR -> JIT compile -> execute.
 
 use bumpalo::Bump;
-use baselang::{lower_program, parse_with_prelude, Program};
+use baselang::{lower_program, parse_with_prelude, Decl, DeclKind, Program};
 use jit::{compile_function, ExecutableMemory};
 use mir::lower_program as lower_to_mir;
+
+/// Find the main function in a program
+fn find_main_function<'a>(program: &'a Program<'a>) -> Option<&'a Decl<'a>> {
+    program.functions().find(|decl| {
+        matches!(&decl.kind, DeclKind::Fn { name, .. } if *name == "main")
+    })
+}
 
 /// Result of running a single test
 #[derive(Debug, Clone)]
@@ -79,7 +86,7 @@ impl TestRunner {
         }
 
         // Lower to BaseLang AST
-        let program = match lower_program(&arena, &parse_result.nodes, source) {
+        let program = match lower_program(&arena, &parse_result.nodes) {
             Ok(p) => p,
             Err(e) => {
                 return RunResult {
@@ -200,7 +207,7 @@ impl MainRunner {
         }
 
         // Lower to BaseLang AST
-        let program = match lower_program(&arena, &parse_result.nodes, source) {
+        let program = match lower_program(&arena, &parse_result.nodes) {
             Ok(p) => p,
             Err(e) => {
                 return MainResult {
@@ -213,7 +220,7 @@ impl MainRunner {
         };
 
         // Find main function
-        let main_fn = match program.functions.iter().find(|f| f.name == "main") {
+        let main_fn = match find_main_function(&program) {
             Some(f) => f,
             None => {
                 return MainResult {
@@ -227,8 +234,7 @@ impl MainRunner {
 
         // Lower to MIR (just the main function)
         let single_program = Program {
-            tests: &[],
-            functions: std::slice::from_ref(main_fn),
+            decls: std::slice::from_ref(main_fn),
         };
         let mir_program = lower_to_mir(&single_program);
         let mir_func = &mir_program.functions[0];
@@ -308,20 +314,16 @@ impl Compiler {
         }
 
         // Lower to BaseLang AST
-        let program = lower_program(&arena, &parse_result.nodes, source)
+        let program = lower_program(&arena, &parse_result.nodes)
             .map_err(|e| e.to_string())?;
 
         // Find main function
-        let main_fn = program
-            .functions
-            .iter()
-            .find(|f| f.name == "main")
+        let main_fn = find_main_function(&program)
             .ok_or_else(|| "no main function found".to_string())?;
 
         // Lower to MIR
         let single_program = Program {
-            tests: &[],
-            functions: std::slice::from_ref(main_fn),
+            decls: std::slice::from_ref(main_fn),
         };
         let mir_program = lower_to_mir(&single_program);
         let mir_func = &mir_program.functions[0];
@@ -510,5 +512,47 @@ mod tests {
         let result = compiler.compile(source, "test.skyl");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("no main function found"));
+    }
+
+    #[test]
+    fn test_runner_parse_error() {
+        let runner = TestRunner::new();
+        // Invalid syntax - missing colon
+        let source = "test broken\n  assert(1 == 1)";
+        let result = runner.run(source);
+        assert!(!result.parse_errors.is_empty());
+        assert!(!result.success());
+    }
+
+    #[test]
+    fn test_main_runner_parse_error() {
+        let runner = MainRunner::new();
+        // Invalid syntax - missing colon
+        let source = "fn main()\n  assert(1 == 1)";
+        let result = runner.run(source);
+        assert!(!result.parse_errors.is_empty());
+        assert!(!result.success());
+    }
+
+    #[test]
+    fn test_compiler_parse_error() {
+        let compiler = Compiler::new();
+        // Invalid syntax - missing colon
+        let source = "fn main()\n  assert(1 == 1)";
+        let result = compiler.compile(source, "test.skyl");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_compiler_lower_error() {
+        let compiler = Compiler::new();
+        // Integer overflow triggers a lowering error
+        let source = indoc! {"
+            fn main():
+              assert(99999999999999999999 == 1)
+        "};
+        let result = compiler.compile(source, "test.skyl");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("integer"));
     }
 }

@@ -2,17 +2,12 @@
 //!
 //! This module defines the AST types used after lowering from SyntaxNode.
 //! All types use arena allocation for zero-copy references.
+//!
+//! Each AST node has a consistent structure: an outer struct containing
+//! source info and an inner enum (or data struct) with the actual node data.
 
-/// Source location information for error reporting
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct SourceInfo<'a> {
-    /// Line number (1-based)
-    pub line: u32,
-    /// Column number (1-based)
-    pub col: u32,
-    /// Source text of the expression
-    pub source: &'a str,
-}
+// Re-export SourceInfo from common for use by AST consumers
+pub use common::SourceInfo;
 
 /// Binary arithmetic operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,9 +29,16 @@ pub enum CmpOp {
     Gte,
 }
 
-/// Expression AST
+/// Expression AST node
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Expr<'a> {
+pub struct Expr<'a> {
+    pub info: SourceInfo<'a>,
+    pub kind: ExprKind<'a>,
+}
+
+/// Expression kinds
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ExprKind<'a> {
     /// Integer literal
     Int(i64),
     /// Binary arithmetic operation
@@ -55,48 +57,56 @@ pub enum Expr<'a> {
     Paren(&'a Expr<'a>),
 }
 
-/// Statement AST
+/// Statement AST node
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Stmt<'a> {
-    /// Assert statement: assert(condition) with source info for error reporting
-    Assert {
-        expr: &'a Expr<'a>,
-        info: SourceInfo<'a>,
+pub struct Stmt<'a> {
+    pub info: SourceInfo<'a>,
+    pub kind: StmtKind<'a>,
+}
+
+/// Statement kinds
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum StmtKind<'a> {
+    /// Assert statement: assert(condition)
+    Assert { expr: &'a Expr<'a> },
+}
+
+/// Declaration AST node
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Decl<'a> {
+    pub info: SourceInfo<'a>,
+    pub kind: DeclKind<'a>,
+}
+
+/// Declaration kinds
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DeclKind<'a> {
+    /// Test declaration
+    Test {
+        name: &'a str,
+        body: &'a [Stmt<'a>],
+    },
+    /// Function declaration
+    Fn {
+        name: &'a str,
+        body: &'a [Stmt<'a>],
     },
 }
 
-/// Test declaration
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct TestDecl<'a> {
-    /// Test name (e.g., "arithmetic works as expected")
-    pub name: &'a str,
-    /// Body statements
-    pub body: &'a [Stmt<'a>],
-}
-
-/// Function declaration
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct FnDecl<'a> {
-    /// Function name (e.g., "main")
-    pub name: &'a str,
-    /// Body statements
-    pub body: &'a [Stmt<'a>],
-    /// Source info for the function declaration (for error reporting)
-    pub info: SourceInfo<'a>,
-}
-
-/// A complete program (collection of test declarations and functions)
+/// A complete program (collection of declarations)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Program<'a> {
-    pub tests: &'a [TestDecl<'a>],
-    pub functions: &'a [FnDecl<'a>],
+    pub decls: &'a [Decl<'a>],
 }
 
-impl<'a> Default for Program<'a> {
-    fn default() -> Self {
-        Program {
-            tests: &[],
-            functions: &[],
-        }
+impl<'a> Program<'a> {
+    /// Get all test declarations
+    pub fn tests(&self) -> impl Iterator<Item = &Decl<'a>> {
+        self.decls.iter().filter(|d| matches!(d.kind, DeclKind::Test { .. }))
+    }
+
+    /// Get all function declarations
+    pub fn functions(&self) -> impl Iterator<Item = &Decl<'a>> {
+        self.decls.iter().filter(|d| matches!(d.kind, DeclKind::Fn { .. }))
     }
 }

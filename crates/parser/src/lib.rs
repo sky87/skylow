@@ -70,7 +70,7 @@ pub use common::{create_logger, Logger};
 
 // Re-export public types
 pub use format::{format_errors, format_node, syntax_node_to_string};
-pub use node::{ParseError, SourceLoc, SyntaxNode};
+pub use node::{ParseError, SourceInfo, SourceLoc, SourceModule, SyntaxNode};
 pub use parser_trait::Parser;
 pub use parser_interp::InterpretedParser;
 pub use parser_vm::{CompiledGrammar, VMParser};

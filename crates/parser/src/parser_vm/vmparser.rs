@@ -3,6 +3,7 @@
 use bumpalo::Bump;
 use common::debug::{create_logger, Logger};
 use common::intern::StringInterner;
+use common::SourceModule;
 
 use crate::node::{ParseError, SourceLoc, SyntaxNode};
 use crate::parser_trait::Parser;
@@ -22,9 +23,12 @@ use super::vm::{IndentMode, VM};
 /// Rules are compiled to bytecode as they're added via `add_rule()`. When
 /// `parse_category()` is called, a VM is created to execute the bytecode.
 /// The grammar is stored in the arena for the VM's lifetime.
-pub struct VMParser<'a, 'src> {
+pub struct VMParser<'a> {
     arena: &'a Bump,
-    source: &'src str,
+    /// The current source module being parsed.
+    module: &'a SourceModule<'a>,
+    /// Cached source text from the module (for efficient access).
+    source: &'a str,
 
     // All rules added so far (kept for recompilation)
     rules: Vec<&'a SyntaxRule<'a>>,
@@ -60,11 +64,14 @@ pub struct VMParser<'a, 'src> {
     log: Logger,
 }
 
-impl<'a, 'src> VMParser<'a, 'src> {
-    /// Create a new VM-based parser
-    pub fn new(arena: &'a Bump, source: &'src str) -> Self {
+impl<'a> VMParser<'a> {
+    /// Create a new VM-based parser with the given source module.
+    pub fn new(arena: &'a Bump, module: &'a SourceModule<'a>) -> Self {
+        // Cache the source text for efficient access (modules are immutable)
+        let source = module.text;
         Self {
             arena,
+            module,
             source,
             rules: Vec::new(),
             grammar: None,
@@ -92,7 +99,7 @@ impl<'a, 'src> VMParser<'a, 'src> {
         SourceLoc::new(self.pos as u32, self.line, self.col)
     }
 
-    pub fn remaining(&self) -> &'src str {
+    pub fn remaining(&self) -> &'a str {
         &self.source[self.pos..]
     }
 
@@ -280,7 +287,7 @@ impl<'a, 'src> VMParser<'a, 'src> {
         };
 
         // Create VM with current position state
-        let mut vm = VM::new(self.arena, grammar, self.source);
+        let mut vm = VM::new(self.arena, grammar, self.module);
         vm.pos = self.pos;
         vm.line = self.line;
         vm.col = self.col;
@@ -314,7 +321,7 @@ impl<'a, 'src> VMParser<'a, 'src> {
 // Parser Trait Implementation
 // =============================================================================
 
-impl<'a, 'src> Parser<'a, 'src> for VMParser<'a, 'src> {
+impl<'a> Parser<'a> for VMParser<'a> {
     fn is_eof(&self) -> bool {
         self.pos >= self.source.len()
     }
@@ -356,8 +363,9 @@ impl<'a, 'src> Parser<'a, 'src> for VMParser<'a, 'src> {
         }
     }
 
-    fn set_source(&mut self, source: &'src str) {
-        self.source = source;
+    fn set_source(&mut self, module: &'a SourceModule<'a>) {
+        self.module = module;
+        self.source = module.text;
         self.pos = 0;
         self.line = 1;
         self.col = 1;

@@ -1,6 +1,7 @@
 //! Driver for SkyLow parsing.
 
 use bumpalo::Bump;
+use common::SourceModule;
 
 use parser::constants::{
     CAT_EXPR, CAT_IDENT, CAT_SYNTAX_DECL, RULE_SYNTAX_CATEGORY, RULE_SYNTAX_DECL,
@@ -15,6 +16,8 @@ use parser::{
 pub struct ParseResult<'a> {
     pub nodes: Vec<&'a SyntaxNode<'a>>,
     pub errors: Vec<ParseError>,
+    /// The source module for the parsed code.
+    pub source_module: &'a SourceModule<'a>,
 }
 
 pub struct Driver<'a> {
@@ -35,20 +38,25 @@ impl<'a> Driver<'a> {
 
     /// Process a source string and return parse results.
     pub fn process(&self, source: &str) -> ParseResult<'a> {
+        // Create source module for the input
+        let source_text = self.arena.alloc_str(source);
+        let module = self.arena.alloc(SourceModule::synthetic(source_text, "<input>"));
+
         if self.use_interpreter {
-            let mut parser = InterpretedParser::new(self.arena, source);
-            self.process_with_parser(&mut parser, source)
+            let mut parser = InterpretedParser::new(self.arena, module);
+            self.process_with_parser(&mut parser, module)
         } else {
-            let mut parser = VMParser::new(self.arena, source);
-            self.process_with_parser(&mut parser, source)
+            let mut parser = VMParser::new(self.arena, module);
+            self.process_with_parser(&mut parser, module)
         }
     }
 
-    fn process_with_parser<'src, P: Parser<'a, 'src>>(
+    fn process_with_parser<P: Parser<'a>>(
         &self,
         parser: &mut P,
-        source: &'src str,
+        module: &'a SourceModule<'a>,
     ) -> ParseResult<'a> {
+        let source = module.text;
         init_syntaxlang(self.arena, parser);
         add_expr_rule(self.arena, parser, CAT_EXPR);
         add_syntax_decl_command_rule(self.arena, parser);
@@ -91,6 +99,6 @@ impl<'a> Driver<'a> {
             }
         }
 
-        ParseResult { nodes, errors }
+        ParseResult { nodes, errors, source_module: module }
     }
 }

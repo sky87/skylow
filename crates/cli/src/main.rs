@@ -291,7 +291,7 @@ fn emit_ast(source: &str, file_path: &str) {
         process::exit(1);
     }
 
-    let program = match lower_program(&arena, &result.nodes, source) {
+    let program = match lower_program(&arena, &result.nodes) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("{}: {}", file_path, e);
@@ -317,7 +317,7 @@ fn emit_mir(source: &str, file_path: &str) {
         process::exit(1);
     }
 
-    let program = match lower_program(&arena, &result.nodes, source) {
+    let program = match lower_program(&arena, &result.nodes) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("{}: {}", file_path, e);

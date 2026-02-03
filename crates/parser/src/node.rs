@@ -1,15 +1,6 @@
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SourceLoc {
-    pub offset: u32,
-    pub line: u32,
-    pub col: u32,
-}
+//! Syntax node types for the parser.
 
-impl SourceLoc {
-    pub fn new(offset: u32, line: u32, col: u32) -> Self {
-        Self { offset, line, col }
-    }
-}
+pub use common::{SourceInfo, SourceLoc, SourceModule};
 
 /// Parse error with location and context information.
 #[derive(Debug)]
@@ -21,10 +12,10 @@ pub struct ParseError {
 
 #[derive(Debug)]
 pub struct SyntaxNode<'a> {
-    pub category: &'a str,  // interned
-    pub rule: &'a str,      // interned
-    pub start: SourceLoc,
-    pub end_offset: u32,
+    pub category: &'a str, // interned
+    pub rule: &'a str,     // interned
+    /// Source location information (module + span).
+    pub info: SourceInfo<'a>,
 
     /// For leaf nodes: the matched text (slice of source)
     pub text: Option<&'a str>,
@@ -38,15 +29,13 @@ impl<'a> SyntaxNode<'a> {
     pub fn leaf(
         category: &'a str,
         rule: &'a str,
-        start: SourceLoc,
-        end_offset: u32,
+        info: SourceInfo<'a>,
         text: &'a str,
     ) -> Self {
         Self {
             category,
             rule,
-            start,
-            end_offset,
+            info,
             text: Some(text),
             children: &[],
         }
@@ -56,17 +45,25 @@ impl<'a> SyntaxNode<'a> {
     pub fn branch(
         category: &'a str,
         rule: &'a str,
-        start: SourceLoc,
-        end_offset: u32,
+        info: SourceInfo<'a>,
         children: &'a [&'a SyntaxNode<'a>],
     ) -> Self {
         Self {
             category,
             rule,
-            start,
-            end_offset,
+            info,
             text: None,
             children,
         }
+    }
+
+    /// Get the start position.
+    pub fn start(&self) -> SourceLoc {
+        self.info.start
+    }
+
+    /// Get the end offset.
+    pub fn end_offset(&self) -> u32 {
+        self.info.end
     }
 }

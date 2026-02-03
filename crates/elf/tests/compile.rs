@@ -22,8 +22,7 @@ fn run_test(path: &Path) -> datatest_stable::Result<()> {
     );
 
     // Lower to BaseLang
-    let program = lower_program(&arena, &parse_result.nodes, &source)
-        .expect("Lowering failed");
+    let program = lower_program(&arena, &parse_result.nodes).expect("Lowering failed");
 
     // Lower to MIR
     let mir_program = lower_to_mir(&program);

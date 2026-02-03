@@ -4,6 +4,7 @@
 //! the BaseLang prelude syntax before parsing user code.
 
 use bumpalo::Bump;
+use common::SourceModule;
 use parser::constants::{CAT_EXPR, CAT_IDENT, CAT_SYNTAX_DECL, RULE_SYNTAX_CATEGORY, RULE_SYNTAX_DECL};
 use parser::{
     add_expr_rule, add_syntax_decl_command_rule, extract_and_register_rule,
@@ -17,6 +18,8 @@ use crate::PRELUDE;
 pub struct ParseResult<'a> {
     pub nodes: Vec<&'a SyntaxNode<'a>>,
     pub errors: Vec<ParseError>,
+    /// The source module for the user code.
+    pub source_module: &'a SourceModule<'a>,
 }
 
 /// Parse source code with the BaseLang prelude applied.
@@ -29,8 +32,11 @@ pub struct ParseResult<'a> {
 ///
 /// Uses the parser's internal string interner for all string interning.
 pub fn parse_with_prelude<'a>(arena: &'a Bump, source: &str) -> ParseResult<'a> {
+    // Create prelude source module
+    let prelude_module = arena.alloc(SourceModule::prelude(PRELUDE));
+
     // First parse the prelude to register syntax rules
-    let mut parser = VMParser::new(arena, PRELUDE);
+    let mut parser = VMParser::new(arena, prelude_module);
 
     init_syntaxlang(arena, &mut parser);
     add_expr_rule(arena, &mut parser, CAT_EXPR);
@@ -62,9 +68,12 @@ pub fn parse_with_prelude<'a>(arena: &'a Bump, source: &str) -> ParseResult<'a> 
         }
     }
 
-    // Switch to user source - offsets start at 0, lines at 1
+    // Create source module for user code
     let user_source = arena.alloc_str(source);
-    parser.set_source(user_source);
+    let source_module = arena.alloc(SourceModule::synthetic(user_source, "<input>"));
+
+    // Switch to user source - offsets start at 0, lines at 1
+    parser.set_source(source_module);
 
     let mut nodes = Vec::new();
     let mut errors = Vec::new();
@@ -100,5 +109,5 @@ pub fn parse_with_prelude<'a>(arena: &'a Bump, source: &str) -> ParseResult<'a> 
         }
     }
 
-    ParseResult { nodes, errors }
+    ParseResult { nodes, errors, source_module }
 }

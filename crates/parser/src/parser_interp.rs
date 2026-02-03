@@ -1,9 +1,9 @@
 use bumpalo::{collections::Vec as BumpVec, Bump};
 use common::debug::{create_logger, Logger};
 use common::intern::StringInterner;
-use common::{log, log_detail, log_fail, log_success};
+use common::{log, log_detail, log_fail, log_success, SourceInfo, SourceLoc, SourceModule};
 
-use crate::node::{ParseError, SourceLoc, SyntaxNode};
+use crate::node::{ParseError, SyntaxNode};
 use crate::parser_trait::Parser;
 use crate::syntax::{Atom, AtomWithQuant, CharClass, Quantifier, RuleTable, SyntaxRule};
 
@@ -101,8 +101,11 @@ pub(crate) struct ParserCheckpoint {
 ///     }
 /// }
 /// ```
-pub struct InterpretedParser<'a, 'src> {
-    source: &'src str,
+pub struct InterpretedParser<'a> {
+    /// The current source module being parsed.
+    module: &'a SourceModule<'a>,
+    /// Cached source text from the module (for efficient access).
+    source: &'a str,
     pos: usize,
     line: u32,
     col: u32,
@@ -125,14 +128,17 @@ pub struct InterpretedParser<'a, 'src> {
     trace_enabled: bool,
 }
 
-impl<'a, 'src> InterpretedParser<'a, 'src> {
+impl<'a> InterpretedParser<'a> {
     // =========================================================================
     // Constructor
     // =========================================================================
 
-    /// Create a new parser for the given source text.
-    pub fn new(arena: &'a Bump, source: &'src str) -> Self {
+    /// Create a new parser for the given source module.
+    pub fn new(arena: &'a Bump, module: &'a SourceModule<'a>) -> Self {
+        // Cache the source text for efficient access (modules are immutable)
+        let source = module.text;
         Self {
+            module,
             source,
             pos: 0,
             line: 1,
@@ -161,8 +167,13 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
     }
 
     /// Get the remaining unparsed source text.
-    pub(crate) fn remaining(&self) -> &'src str {
+    pub(crate) fn remaining(&self) -> &'a str {
         &self.source[self.pos..]
+    }
+
+    /// Create a SourceInfo for the given span.
+    fn make_info(&self, start: SourceLoc, end: u32) -> SourceInfo<'a> {
+        SourceInfo::new(self.module, start, end)
     }
 
     /// Clear furthest failure tracking for a new top-level parse.
@@ -453,11 +464,11 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
             Atom::Literal(lit) => {
                 if self.match_literal(lit) {
                     let text = self.arena.alloc_str(lit);
+                    let info = self.make_info(start, self.pos as u32);
                     let node = self.arena.alloc(SyntaxNode::leaf(
                         self.strings.intern(NODE_LITERAL),
                         self.strings.intern(NODE_LITERAL),
-                        start,
-                        self.pos as u32,
+                        info,
                         text,
                     ));
                     Some(node)
@@ -470,11 +481,11 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
                 if let Some(c) = self.match_char_class(*class) {
                     let mut buf = [0u8; 4];
                     let text = self.arena.alloc_str(c.encode_utf8(&mut buf));
+                    let info = self.make_info(start, self.pos as u32);
                     let node = self.arena.alloc(SyntaxNode::leaf(
                         self.strings.intern(NODE_CHAR),
                         self.strings.intern(NODE_CHARCLASS),
-                        start,
-                        self.pos as u32,
+                        info,
                         text,
                     ));
                     Some(node)
@@ -487,11 +498,11 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
                 if let Some(c) = self.match_char_set(ranges, *negated) {
                     let mut buf = [0u8; 4];
                     let text = self.arena.alloc_str(c.encode_utf8(&mut buf));
+                    let info = self.make_info(start, self.pos as u32);
                     let node = self.arena.alloc(SyntaxNode::leaf(
                         self.strings.intern(NODE_CHAR),
                         self.strings.intern(NODE_CHARSET),
-                        start,
-                        self.pos as u32,
+                        info,
                         text,
                     ));
                     Some(node)
@@ -505,11 +516,11 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
                     let cp = self.save();
                     if let Some(children) = self.match_pattern(alt) {
                         let children_slice = children.into_bump_slice();
+                        let info = self.make_info(start, self.pos as u32);
                         let node = self.arena.alloc(SyntaxNode::branch(
                             self.strings.intern(NODE_GROUP),
                             self.strings.intern(NODE_GROUP),
-                            start,
-                            self.pos as u32,
+                            info,
                             children_slice,
                         ));
                         return Some(node);
@@ -523,11 +534,11 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
 
             Atom::IndentAnchor => {
                 self.pending_anchor = true;
+                let info = self.make_info(start, self.pos as u32);
                 let node = self.arena.alloc(SyntaxNode::leaf(
                     self.strings.intern(NODE_INDENT),
                     self.strings.intern(NODE_ANCHOR),
-                    start,
-                    self.pos as u32,
+                    info,
                     "",
                 ));
                 Some(node)
@@ -535,11 +546,11 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
 
             Atom::IndentStrict => {
                 self.indent_mode = IndentMode::Strict;
+                let info = self.make_info(start, self.pos as u32);
                 let node = self.arena.alloc(SyntaxNode::leaf(
                     self.strings.intern(NODE_INDENT),
                     self.strings.intern(NODE_STRICT),
-                    start,
-                    self.pos as u32,
+                    info,
                     "",
                 ));
                 Some(node)
@@ -547,11 +558,11 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
 
             Atom::IndentLax => {
                 self.indent_mode = IndentMode::Lax;
+                let info = self.make_info(start, self.pos as u32);
                 let node = self.arena.alloc(SyntaxNode::leaf(
                     self.strings.intern(NODE_INDENT),
                     self.strings.intern(NODE_LAX),
-                    start,
-                    self.pos as u32,
+                    info,
                     "",
                 ));
                 Some(node)
@@ -561,11 +572,11 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
                 let start_pos = self.pos;
                 if self.skip_ws() {
                     if self.pos > start_pos {
+                        let info = self.make_info(start, self.pos as u32);
                         let node = self.arena.alloc(SyntaxNode::leaf(
                             self.strings.intern(NODE_WS),
                             self.strings.intern(NODE_WS),
-                            start,
-                            self.pos as u32,
+                            info,
                             "",
                         ));
                         Some(node)
@@ -693,11 +704,11 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
             let cp = self.save();
             if let Some(children) = self.match_pattern(rule.pattern) {
                 let children_slice = children.into_bump_slice();
+                let info = self.make_info(start, self.pos as u32);
                 let node = self.arena.alloc(SyntaxNode::branch(
                     rule.category,
                     rule.name,
-                    start,
-                    self.pos as u32,
+                    info,
                     children_slice,
                 ));
 
@@ -737,11 +748,11 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
                 if let Some(mut children) = self.match_pattern(rest_pattern) {
                     children.insert(0, left);
                     let children_slice = children.into_bump_slice();
+                    let info = self.make_info(start, self.pos as u32);
                     let node = self.arena.alloc(SyntaxNode::branch(
                         rule.category,
                         rule.name,
-                        start,
-                        self.pos as u32,
+                        info,
                         children_slice,
                     ));
 
@@ -771,7 +782,7 @@ impl<'a, 'src> InterpretedParser<'a, 'src> {
 // Parser Trait Implementation
 // =============================================================================
 
-impl<'a, 'src> Parser<'a, 'src> for InterpretedParser<'a, 'src> {
+impl<'a> Parser<'a> for InterpretedParser<'a> {
     fn is_eof(&self) -> bool {
         self.pos >= self.source.len()
     }
@@ -815,8 +826,9 @@ impl<'a, 'src> Parser<'a, 'src> for InterpretedParser<'a, 'src> {
         }
     }
 
-    fn set_source(&mut self, source: &'src str) {
-        self.source = source;
+    fn set_source(&mut self, module: &'a SourceModule<'a>) {
+        self.module = module;
+        self.source = module.text;
         self.pos = 0;
         self.line = 1;
         self.col = 1;

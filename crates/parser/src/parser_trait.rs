@@ -3,7 +3,7 @@
 //! This trait defines the common interface implemented by both
 //! `InterpretedParser` and `VMParser`.
 
-use common::StringInterner;
+use common::{SourceModule, StringInterner};
 
 use crate::node::{ParseError, SyntaxNode};
 use crate::syntax::SyntaxRule;
@@ -12,7 +12,7 @@ use crate::syntax::SyntaxRule;
 ///
 /// This trait is implemented by both the interpreted parser and the VM-based
 /// parser, allowing syntaxlang functions to work with either implementation.
-pub trait Parser<'a, 'src>: Sized {
+pub trait Parser<'a>: Sized {
     // =========================================================================
     // Core parsing
     // =========================================================================
@@ -34,11 +34,11 @@ pub trait Parser<'a, 'src>: Sized {
     /// Skip to the next line (for error recovery).
     fn skip_to_next_line(&mut self);
 
-    /// Switch to a new source while keeping registered rules.
+    /// Switch to a new source module while keeping registered rules.
     ///
     /// Resets position to offset 0, line 1, col 1.
     /// Used after parsing a prelude to parse user code with correct offsets.
-    fn set_source(&mut self, source: &'src str);
+    fn set_source(&mut self, module: &'a SourceModule<'a>);
 
     // =========================================================================
     // Rule management

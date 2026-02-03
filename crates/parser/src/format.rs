@@ -10,12 +10,12 @@ pub fn format_node(node: &SyntaxNode, indent: usize) -> String {
     if let Some(text) = node.text {
         result.push_str(&format!(
             "{}{}:{} \"{}\" @{}:{}\n",
-            prefix, node.category, node.rule, text, node.start.line, node.start.col
+            prefix, node.category, node.rule, text, node.start().line, node.start().col
         ));
     } else {
         result.push_str(&format!(
             "{}{}:{} @{}:{}\n",
-            prefix, node.category, node.rule, node.start.line, node.start.col
+            prefix, node.category, node.rule, node.start().line, node.start().col
         ));
         for child in node.children {
             result.push_str(&format_node(child, indent + 1));

@@ -1,6 +1,7 @@
 //! Parse tree tests that run both InterpretedParser and VMParser on each test file.
 
 use bumpalo::Bump;
+use common::SourceModule;
 use datatest_stable::harness;
 use parser::constants::{CAT_EXPR, CAT_SYNTAX_DECL, RULE_SYNTAX_CATEGORY, RULE_SYNTAX_DECL};
 use parser::{
@@ -19,7 +20,8 @@ fn exercise_debug_methods() {
         let arena = Bump::new();
 
         // Exercise InterpretedParser debug methods
-        let mut interp = InterpretedParser::new(&arena, "test");
+        let module = arena.alloc(SourceModule::synthetic("test", "<test>"));
+        let mut interp = InterpretedParser::new(&arena, module);
         init_syntaxlang(&arena, &mut interp);
         interp.set_trace(true);
         interp.set_trace(false);
@@ -27,8 +29,14 @@ fn exercise_debug_methods() {
         interp.dump_rules();
         let _ = interp.parse_category(CAT_EXPR);
 
+        // Exercise InterpretedParser::set_source for coverage
+        let module2 = arena.alloc(SourceModule::synthetic("42", "<test2>"));
+        interp.set_source(module2);
+        let _ = interp.parse_category(CAT_EXPR);
+
         // Exercise VMParser debug methods
-        let mut vm = VMParser::new(&arena, "test");
+        let module = arena.alloc(SourceModule::synthetic("test", "<test>"));
+        let mut vm = VMParser::new(&arena, module);
         init_syntaxlang(&arena, &mut vm);
         vm.set_trace(true);
         vm.set_trace(false);
@@ -37,15 +45,18 @@ fn exercise_debug_methods() {
         let _ = vm.parse_category(CAT_EXPR);
 
         // Exercise VM directives
-        let mut vm_trace = VMParser::new(&arena, "#!vm:trace\ntest");
+        let module = arena.alloc(SourceModule::synthetic("#!vm:trace\ntest", "<test>"));
+        let mut vm_trace = VMParser::new(&arena, module);
         init_syntaxlang(&arena, &mut vm_trace);
         vm_trace.check_vm_directive();
 
-        let mut vm_dump = VMParser::new(&arena, "#!vm:dump\ntest");
+        let module = arena.alloc(SourceModule::synthetic("#!vm:dump\ntest", "<test>"));
+        let mut vm_dump = VMParser::new(&arena, module);
         init_syntaxlang(&arena, &mut vm_dump);
         vm_dump.check_vm_directive();
 
-        let mut vm_rules = VMParser::new(&arena, "#!vm:rules\ntest");
+        let module = arena.alloc(SourceModule::synthetic("#!vm:rules\ntest", "<test>"));
+        let mut vm_rules = VMParser::new(&arena, module);
         init_syntaxlang(&arena, &mut vm_rules);
         vm_rules.check_vm_directive();
 
@@ -55,10 +66,10 @@ fn exercise_debug_methods() {
 }
 
 /// Run a parser on the input and collect results
-fn run_parser<'a, 'src, P: Parser<'a, 'src>>(
+fn run_parser<'a, P: Parser<'a>>(
     arena: &'a Bump,
     parser: &mut P,
-    input: &'src str,
+    input: &'a str,
 ) -> (Vec<&'a SyntaxNode<'a>>, Vec<ParseError>) {
     init_syntaxlang(arena, parser);
     add_expr_rule(arena, parser, CAT_EXPR);
@@ -140,9 +151,11 @@ fn run_test(path: &Path) -> datatest_stable::Result<()> {
 
     // Run interpreted parser
     let arena_interp = Bump::new();
-    let mut parser_interp = InterpretedParser::new(&arena_interp, &input);
+    let input_interp = arena_interp.alloc_str(&input);
+    let module_interp = arena_interp.alloc(SourceModule::synthetic(input_interp, test_name));
+    let mut parser_interp = InterpretedParser::new(&arena_interp, module_interp);
     let (nodes_interp, errors_interp) =
-        run_parser(&arena_interp, &mut parser_interp, &input);
+        run_parser(&arena_interp, &mut parser_interp, input_interp);
 
     // Exercise debug formatting functions for coverage
     for node in &nodes_interp {
@@ -165,8 +178,10 @@ fn run_test(path: &Path) -> datatest_stable::Result<()> {
 
     // Run VM parser
     let arena_vm = Bump::new();
-    let mut parser_vm = VMParser::new(&arena_vm, &input);
-    let (nodes_vm, errors_vm) = run_parser(&arena_vm, &mut parser_vm, &input);
+    let input_vm = arena_vm.alloc_str(&input);
+    let module_vm = arena_vm.alloc(SourceModule::synthetic(input_vm, test_name));
+    let mut parser_vm = VMParser::new(&arena_vm, module_vm);
+    let (nodes_vm, errors_vm) = run_parser(&arena_vm, &mut parser_vm, input_vm);
 
     let actual_vm = combine_output(
         format_output(&nodes_vm),
