@@ -1,0 +1,9 @@
+[package]
+name = "codegen"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+mir.workspace = true
+
+[dev-dependencies]

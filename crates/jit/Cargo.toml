@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 libc.workspace = true
 mir.workspace = true
+codegen.workspace = true
 
 [dev-dependencies]
 bumpalo.workspace = true

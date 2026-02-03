@@ -2,9 +2,8 @@
 //!
 //! Compiles MIR functions to AArch64 machine code.
 
-use mir::{BinOp, CmpOp, Inst, MirFunction, Reg};
-
-use super::emit::{ArmReg, Cond, Emitter};
+use codegen::{lower_instructions, ArmReg, Backend, Emitter};
+use mir::MirFunction;
 
 /// Result of compiling a test function
 pub struct CompiledTest {
@@ -14,32 +13,57 @@ pub struct CompiledTest {
     pub num_asserts: u32,
 }
 
+/// JIT backend for test functions
+///
+/// Generates code that returns 0 on success or (failed_assert_index + 1) on failure.
+struct JitBackend;
+
+impl Backend for JitBackend {
+    fn emit_prologue(&self, emit: &mut Emitter) {
+        // Save callee-saved registers we use
+        // STP x19, x20, [sp, #-32]!
+        emit.stp_pre(ArmReg::X19, ArmReg::X20, -32);
+        // STP x21, x22, [sp, #-16]!
+        emit.stp_pre(ArmReg::X21, ArmReg::X22, -16);
+    }
+
+    fn emit_epilogue(&self, emit: &mut Emitter) {
+        // Success path: return 0
+        emit.mov_imm16(ArmReg::X0, 0);
+
+        // Restore callee-saved registers
+        emit.ldp_post(ArmReg::X21, ArmReg::X22, 16);
+        emit.ldp_post(ArmReg::X19, ArmReg::X20, 32);
+        emit.ret();
+    }
+
+    fn emit_assert_failure(&self, emit: &mut Emitter, cond_hw: ArmReg, msg_id: u32) -> usize {
+        // CBNZ to skip failure path (branch if NOT zero = condition is true)
+        let cbnz_pos = emit.cbnz(cond_hw, 0); // placeholder offset
+
+        // Failure path: return (msg_id + 1)
+        emit.mov_imm16(ArmReg::X0, (msg_id + 1) as u16);
+        emit.ldp_post(ArmReg::X21, ArmReg::X22, 16);
+        emit.ldp_post(ArmReg::X19, ArmReg::X20, 32);
+        emit.ret();
+
+        cbnz_pos
+    }
+}
+
 /// Compile a MIR function to AArch64 machine code.
 ///
 /// The generated function has signature: `extern "C" fn() -> u8`
 /// Returns 0 on success, or (failed_assert_index + 1) on failure.
 pub fn compile_function(func: &MirFunction) -> CompiledTest {
     let mut emit = Emitter::new();
-    let mut regalloc = SimpleRegAlloc::new();
-    let mut num_asserts = 0u32;
+    let backend = JitBackend;
 
-    // Function prologue - save callee-saved registers we use
-    // STP x19, x20, [sp, #-32]!
-    emit.stp_pre(ArmReg::X19, ArmReg::X20, -32);
-    // STP x21, x22, [sp, #16] - but simpler to just do another pre-index
-    emit.stp_pre(ArmReg::X21, ArmReg::X22, -16);
+    // Emit prologue
+    backend.emit_prologue(&mut emit);
 
-    for inst in &func.instructions {
-        compile_inst(&mut emit, &mut regalloc, inst, &mut num_asserts);
-    }
-
-    // Success path: return 0
-    emit.mov_imm16(ArmReg::X0, 0);
-
-    // Function epilogue
-    emit.ldp_post(ArmReg::X21, ArmReg::X22, 16);
-    emit.ldp_post(ArmReg::X19, ArmReg::X20, 32);
-    emit.ret();
+    // Lower all instructions
+    let num_asserts = lower_instructions(&mut emit, &backend, &func.instructions);
 
     CompiledTest {
         code: emit.into_code(),
@@ -47,104 +71,11 @@ pub fn compile_function(func: &MirFunction) -> CompiledTest {
     }
 }
 
-fn compile_inst(
-    emit: &mut Emitter,
-    regalloc: &mut SimpleRegAlloc,
-    inst: &Inst,
-    num_asserts: &mut u32,
-) {
-    match inst {
-        Inst::LoadImm { dst, value } => {
-            let hw_reg = regalloc.get(*dst);
-            emit.mov_imm64(hw_reg, *value);
-        }
-        Inst::BinOp { op, dst, left, right } => {
-            let left_hw = regalloc.get(*left);
-            let right_hw = regalloc.get(*right);
-            let dst_hw = regalloc.get(*dst);
-
-            match op {
-                BinOp::Add => emit.add_reg(dst_hw, left_hw, right_hw),
-                BinOp::Sub => emit.sub_reg(dst_hw, left_hw, right_hw),
-                BinOp::Mul => emit.mul_reg(dst_hw, left_hw, right_hw),
-                BinOp::Div => emit.sdiv_reg(dst_hw, left_hw, right_hw),
-            }
-        }
-        Inst::Cmp { op, dst, left, right } => {
-            let left_hw = regalloc.get(*left);
-            let right_hw = regalloc.get(*right);
-            let dst_hw = regalloc.get(*dst);
-
-            emit.cmp_reg(left_hw, right_hw);
-
-            let cond = match op {
-                CmpOp::Eq => Cond::Eq,
-                CmpOp::Neq => Cond::Ne,
-                CmpOp::Lt => Cond::Lt,
-                CmpOp::Lte => Cond::Le,
-                CmpOp::Gt => Cond::Gt,
-                CmpOp::Gte => Cond::Ge,
-            };
-            emit.cset(dst_hw, cond);
-        }
-        Inst::Assert { cond, msg_id } => {
-            let cond_hw = regalloc.get(*cond);
-
-            // CBNZ to skip failure path (branch if NOT zero = condition is true)
-            let cbnz_pos = emit.cbnz(cond_hw, 0); // placeholder offset
-
-            // Failure path: return (msg_id + 1)
-            emit.mov_imm16(ArmReg::X0, (*msg_id + 1) as u16);
-            emit.ldp_post(ArmReg::X21, ArmReg::X22, 16);
-            emit.ldp_post(ArmReg::X19, ArmReg::X20, 32);
-            emit.ret();
-
-            // Patch the CBNZ to skip to here (success path continues)
-            let target = emit.len();
-            emit.patch_branch(cbnz_pos, target);
-
-            *num_asserts += 1;
-        }
-        Inst::Ret => {
-            // Ret is handled at the end of compile_function
-        }
-    }
-}
-
-/// Simple register allocator
-///
-/// Maps virtual registers to hardware registers in a round-robin fashion.
-/// Uses callee-saved registers x19-x22.
-struct SimpleRegAlloc {
-    mapping: Vec<ArmReg>,
-}
-
-impl SimpleRegAlloc {
-    fn new() -> Self {
-        Self { mapping: Vec::new() }
-    }
-
-    fn get(&mut self, reg: Reg) -> ArmReg {
-        let idx = reg.0 as usize;
-        while self.mapping.len() <= idx {
-            let next = self.next_reg();
-            self.mapping.push(next);
-        }
-        self.mapping[idx]
-    }
-
-    fn next_reg(&self) -> ArmReg {
-        // Use callee-saved registers
-        const REGS: [ArmReg; 4] = [ArmReg::X19, ArmReg::X20, ArmReg::X21, ArmReg::X22];
-        REGS[self.mapping.len() % REGS.len()]
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ExecutableMemory;
-    use mir::MirFunction;
+    use mir::{BinOp, CmpOp, Inst, MirFunction};
 
     fn run_test(func: &MirFunction) -> u8 {
         let compiled = compile_function(func);

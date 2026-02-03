@@ -6,5 +6,5 @@ pub mod aarch64;
 mod exec;
 
 pub use aarch64::codegen::{compile_function, CompiledTest};
-pub use aarch64::emit::{ArmReg, Cond, Emitter};
+pub use codegen::{ArmReg, Cond, Emitter};
 pub use exec::ExecutableMemory;

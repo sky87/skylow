@@ -159,6 +159,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "codegen"
+version = "0.1.0"
+dependencies = [
+ "mir",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -204,8 +211,8 @@ version = "0.1.0"
 dependencies = [
  "baselang",
  "bumpalo",
+ "codegen",
  "datatest-stable",
- "jit",
  "mir",
 ]
 
@@ -276,6 +283,7 @@ version = "0.1.0"
 dependencies = [
  "baselang",
  "bumpalo",
+ "codegen",
  "datatest-stable",
  "libc",
  "mir",

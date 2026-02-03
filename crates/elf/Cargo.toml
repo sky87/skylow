@@ -5,7 +5,7 @@ edition.workspace = true
 
 [dependencies]
 mir.workspace = true
-jit.workspace = true
+codegen.workspace = true
 
 [dev-dependencies]
 bumpalo.workspace = true
