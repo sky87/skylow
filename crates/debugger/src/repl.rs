@@ -27,7 +27,7 @@ pub struct Session {
     last_command: Option<Command>,
     /// Binary path
     binary_path: PathBuf,
-    /// Captured output lines
+    /// Captured output lines (for testing)
     output: Vec<String>,
 }
 
@@ -72,19 +72,21 @@ impl Session {
         })
     }
 
-    /// Print a line (captures to output buffer)
+    /// Print a line (captures to output buffer for testing)
     fn println(&mut self, msg: impl AsRef<str>) {
         let s = msg.as_ref().to_string();
         println!("{}", s);
         self.output.push(s);
     }
 
-    /// Get captured output
+    /// Get captured output (for testing)
+    #[allow(dead_code)]
     pub fn get_output(&self) -> &[String] {
         &self.output
     }
 
-    /// Clear captured output
+    /// Clear captured output (for testing)
+    #[allow(dead_code)]
     pub fn clear_output(&mut self) {
         self.output.clear();
     }
@@ -633,5 +635,36 @@ mod tests {
         // This should succeed (we don't check file existence in new())
         let session = Session::new(PathBuf::from("/nonexistent"), vec![]);
         assert!(session.is_ok());
+    }
+
+    #[test]
+    fn test_output_capture() {
+        let mut session = Session::new(PathBuf::from("/nonexistent"), vec![]).unwrap();
+
+        // Initially empty
+        assert!(session.get_output().is_empty());
+
+        // Execute unknown command - should produce output
+        let _ = session.execute(Command::Unknown("foo".to_string()));
+        assert_eq!(session.get_output().len(), 1);
+        assert_eq!(session.get_output()[0], "Unknown command: foo");
+
+        // Execute another unknown command
+        let _ = session.execute(Command::Unknown("bar".to_string()));
+        assert_eq!(session.get_output().len(), 2);
+        assert_eq!(session.get_output()[1], "Unknown command: bar");
+
+        // Clear output
+        session.clear_output();
+        assert!(session.get_output().is_empty());
+    }
+
+    #[test]
+    fn test_info_breakpoints_empty() {
+        let mut session = Session::new(PathBuf::from("/nonexistent"), vec![]).unwrap();
+        session.clear_output();
+
+        let _ = session.execute(Command::Info(InfoKind::Breakpoints));
+        assert_eq!(session.get_output(), &["No breakpoints."]);
     }
 }
