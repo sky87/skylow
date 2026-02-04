@@ -1,0 +1,28 @@
+[package]
+name = "debugger"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "debugger"
+path = "src/lib.rs"
+
+[[bin]]
+name = "skydbg"
+path = "src/main.rs"
+
+[dependencies]
+debug = { workspace = true }
+debuginfo = { workspace = true }
+libc = { workspace = true }
+
+[dev-dependencies]
+datatest-stable = { workspace = true }
+bumpalo = { workspace = true }
+baselang = { workspace = true }
+mir = { workspace = true }
+elf = { workspace = true }
+
+[[test]]
+name = "debug_test"
+harness = false

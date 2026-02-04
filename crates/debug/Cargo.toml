@@ -1,10 +1,10 @@
 [package]
-name = "codegen"
+name = "debug"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-mir.workspace = true
-debuginfo.workspace = true
+debuginfo = { workspace = true }
+mir = { workspace = true }
 
 [dev-dependencies]

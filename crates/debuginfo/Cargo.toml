@@ -1,10 +1,9 @@
 [package]
-name = "codegen"
+name = "debuginfo"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-mir.workspace = true
-debuginfo.workspace = true
+bitflags = "2"
 
 [dev-dependencies]

@@ -5,7 +5,7 @@
 use bumpalo::Bump;
 use datatest_stable::harness;
 use baselang::{lower_program as lower_to_ast, parse_with_prelude};
-use mir::{lower_program, BinOp, CmpOp, Inst, MirFunction};
+use mir::{lower_program, BinOp, CmpOp, Inst, InstKind, MirFunction};
 use std::path::Path;
 
 /// Format a register
@@ -15,11 +15,11 @@ fn format_reg(r: mir::Reg) -> String {
 
 /// Format an instruction
 fn format_inst(inst: &Inst) -> String {
-    match inst {
-        Inst::LoadImm { dst, value } => {
+    match &inst.kind {
+        InstKind::LoadImm { dst, value } => {
             format!("  {} = load {}", format_reg(*dst), value)
         }
-        Inst::BinOp { op, dst, left, right } => {
+        InstKind::BinOp { op, dst, left, right } => {
             let op_str = match op {
                 BinOp::Add => "add",
                 BinOp::Sub => "sub",
@@ -34,7 +34,7 @@ fn format_inst(inst: &Inst) -> String {
                 format_reg(*right)
             )
         }
-        Inst::Cmp { op, dst, left, right } => {
+        InstKind::Cmp { op, dst, left, right } => {
             let op_str = match op {
                 CmpOp::Eq => "eq",
                 CmpOp::Neq => "neq",
@@ -51,10 +51,10 @@ fn format_inst(inst: &Inst) -> String {
                 format_reg(*right)
             )
         }
-        Inst::Assert { cond, msg_id } => {
+        InstKind::Assert { cond, msg_id } => {
             format!("  assert {}, #{}", format_reg(*cond), msg_id)
         }
-        Inst::Ret => "  ret".to_string(),
+        InstKind::Ret => "  ret".to_string(),
     }
 }
 

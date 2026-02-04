@@ -1,0 +1,2 @@
+test simple run:
+  assert(1 == 1)

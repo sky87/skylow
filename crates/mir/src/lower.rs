@@ -1,8 +1,21 @@
 //! Lowering from BaseLang AST to MIR
 
-use baselang::{BinOp as AstBinOp, CmpOp as AstCmpOp, DeclKind, Expr, ExprKind, Program, Stmt, StmtKind};
+use baselang::{BinOp as AstBinOp, CmpOp as AstCmpOp, DeclKind, Expr, ExprKind, Program, SourceInfo, Stmt, StmtKind};
 
-use crate::ir::{AssertInfo, BinOp, CmpOp, Inst, MirFunction, MirProgram, Reg};
+use crate::ir::{AssertInfo, BinOp, CmpOp, FunctionDebugInfo, InstKind, MirFunction, MirProgram, Reg, SourceSpan};
+
+/// Convert a SourceInfo to an owned SourceSpan
+fn to_source_span(info: &SourceInfo) -> SourceSpan {
+    // For now, we use the same line/col for end since SourceInfo doesn't track end position
+    // TODO: Add proper end position tracking when needed
+    SourceSpan {
+        source_id: info.module.id.to_owned(),
+        line: info.line(),
+        col: info.col(),
+        end_line: info.line(),
+        end_col: info.col(),
+    }
+}
 
 /// Lower a BaseLang Program to MIR
 pub fn lower_program(program: &Program) -> MirProgram {
@@ -12,18 +25,28 @@ pub fn lower_program(program: &Program) -> MirProgram {
         match &decl.kind {
             DeclKind::Test { name, body } => {
                 let mut func = MirFunction::new((*name).to_owned());
+                // Set debug info from declaration
+                func.debug_info = FunctionDebugInfo {
+                    span: Some(to_source_span(&decl.info)),
+                    source_id: Some(decl.info.module.id.to_owned()),
+                };
                 for stmt in *body {
                     lower_stmt(&mut func, stmt);
                 }
-                func.emit(Inst::Ret);
+                func.emit(InstKind::Ret);
                 mir.functions.push(func);
             }
             DeclKind::Fn { name, body } => {
                 let mut func = MirFunction::new_function((*name).to_owned());
+                // Set debug info from declaration
+                func.debug_info = FunctionDebugInfo {
+                    span: Some(to_source_span(&decl.info)),
+                    source_id: Some(decl.info.module.id.to_owned()),
+                };
                 for stmt in *body {
                     lower_stmt(&mut func, stmt);
                 }
-                func.emit(Inst::Ret);
+                func.emit(InstKind::Ret);
                 mir.functions.push(func);
             }
         }
@@ -42,16 +65,18 @@ fn lower_stmt(func: &mut MirFunction, stmt: &Stmt) {
                 col: stmt.info.col(),
                 source: stmt.info.text().to_owned(),
             };
-            func.emit_assert(cond, assert_info);
+            let span = to_source_span(&stmt.info);
+            func.emit_assert_with_span(cond, assert_info, span);
         }
     }
 }
 
 fn lower_expr(func: &mut MirFunction, expr: &Expr) -> Reg {
+    let span = to_source_span(&expr.info);
     match &expr.kind {
         ExprKind::Int(value) => {
             let dst = func.alloc_reg();
-            func.emit(Inst::LoadImm { dst, value: *value });
+            func.emit_with_span(InstKind::LoadImm { dst, value: *value }, span);
             dst
         }
         ExprKind::BinOp { op, left, right } => {
@@ -64,7 +89,7 @@ fn lower_expr(func: &mut MirFunction, expr: &Expr) -> Reg {
                 AstBinOp::Mul => BinOp::Mul,
                 AstBinOp::Div => BinOp::Div,
             };
-            func.emit(Inst::BinOp { op: mir_op, dst, left: left_reg, right: right_reg });
+            func.emit_with_span(InstKind::BinOp { op: mir_op, dst, left: left_reg, right: right_reg }, span);
             dst
         }
         ExprKind::Cmp { op, left, right } => {
@@ -79,7 +104,7 @@ fn lower_expr(func: &mut MirFunction, expr: &Expr) -> Reg {
                 AstCmpOp::Gt => CmpOp::Gt,
                 AstCmpOp::Gte => CmpOp::Gte,
             };
-            func.emit(Inst::Cmp { op: mir_op, dst, left: left_reg, right: right_reg });
+            func.emit_with_span(InstKind::Cmp { op: mir_op, dst, left: left_reg, right: right_reg }, span);
             dst
         }
         ExprKind::Paren(inner) => lower_expr(func, inner),

@@ -5,11 +5,12 @@
 pub mod aarch64;
 pub mod elf64;
 
+use debuginfo::write_skydbg;
 use mir::MirFunction;
 
-use crate::aarch64::codegen::compile_binary;
+use crate::aarch64::codegen::{compile_binary, compile_binary_with_debug};
 use crate::elf64::{
-    generate_elf_header, generate_program_header, header_size, BASE_ADDR, SEGMENT_R, SEGMENT_RX,
+    generate_elf_header, generate_program_header, header_size, BASE_ADDR, SEGMENT_RX,
 };
 
 /// Generate a complete ELF executable from a MIR function
@@ -17,14 +18,14 @@ pub fn generate_elf(func: &MirFunction, filename: &str) -> Vec<u8> {
     // Compile the function to machine code
     let compiled = compile_binary(func, filename);
 
-    // Calculate layout:
+    // Calculate layout using a single LOAD segment for simplicity:
     // - ELF header (64 bytes)
-    // - 2 program headers (112 bytes total)
+    // - 1 program header (56 bytes)
     // - Code section (variable)
-    // - Padding to page boundary
+    // - Padding to 8-byte boundary
     // - Read-only data section (variable)
 
-    let num_phdrs = 2u16;
+    let num_phdrs = 1u16;
     let headers_size = header_size(num_phdrs);
     let code_offset = headers_size;
     let code_size = compiled.code.len();
@@ -33,8 +34,9 @@ pub fn generate_elf(func: &MirFunction, filename: &str) -> Vec<u8> {
     let rodata_offset = (code_offset + code_size + 7) & !7;
     let rodata_size = compiled.rodata.len();
 
-    // Total file size
+    // Total file size and segment size
     let total_size = rodata_offset + rodata_size;
+    let segment_size = total_size - code_offset;
 
     // Entry point is at the start of code
     let entry_addr = BASE_ADDR + code_offset as u64 + compiled.entry_offset as u64;
@@ -48,24 +50,14 @@ pub fn generate_elf(func: &MirFunction, filename: &str) -> Vec<u8> {
     // ELF header
     elf.extend_from_slice(&generate_elf_header(entry_addr, num_phdrs));
 
-    // Program header 1: Code segment (RX)
-    let code_vaddr = BASE_ADDR + code_offset as u64;
+    // Single program header for code + rodata (RX - need execute for code, read for rodata)
+    let segment_vaddr = BASE_ADDR + code_offset as u64;
     elf.extend_from_slice(&generate_program_header(
         code_offset as u64,
-        code_vaddr,
-        code_size as u64,
-        code_size as u64,
+        segment_vaddr,
+        segment_size as u64,
+        segment_size as u64,
         SEGMENT_RX,
-        0x1000,
-    ));
-
-    // Program header 2: Data segment (R)
-    elf.extend_from_slice(&generate_program_header(
-        rodata_offset as u64,
-        rodata_vaddr,
-        rodata_size as u64,
-        rodata_size as u64,
-        SEGMENT_R,
         0x1000,
     ));
 
@@ -82,6 +74,87 @@ pub fn generate_elf(func: &MirFunction, filename: &str) -> Vec<u8> {
     elf.extend_from_slice(&compiled.rodata);
 
     elf
+}
+
+/// Result of ELF generation with debug info
+pub struct ElfWithDebug {
+    /// The ELF binary
+    pub elf: Vec<u8>,
+    /// The debug info sidecar file (.skydbg format), if debug info was available
+    pub debug_sidecar: Option<Vec<u8>>,
+}
+
+/// Generate a complete ELF executable with optional debug sidecar file
+///
+/// Returns the ELF binary and an optional .skydbg sidecar file containing
+/// debug information.
+pub fn generate_elf_with_debug(func: &MirFunction, filename: &str) -> ElfWithDebug {
+    // Compile the function to machine code with debug info
+    let compiled = compile_binary_with_debug(func, filename);
+
+    // Calculate layout using a single LOAD segment for simplicity:
+    // - ELF header (64 bytes)
+    // - 1 program header (56 bytes)
+    // - Code section (variable)
+    // - Padding to 8-byte boundary
+    // - Read-only data section (variable)
+
+    let num_phdrs = 1u16;
+    let headers_size = header_size(num_phdrs);
+    let code_offset = headers_size;
+    let code_size = compiled.code.len();
+
+    // Align rodata to 8 bytes after code
+    let rodata_offset = (code_offset + code_size + 7) & !7;
+    let rodata_size = compiled.rodata.len();
+
+    // Total file size and segment size
+    let total_size = rodata_offset + rodata_size;
+    let segment_size = total_size - code_offset;
+
+    // Entry point is at the start of code
+    let entry_addr = BASE_ADDR + code_offset as u64 + compiled.entry_offset as u64;
+
+    // Rodata virtual address (for patching message pointers)
+    let rodata_vaddr = BASE_ADDR + rodata_offset as u64;
+
+    // Generate the ELF binary
+    let mut elf = Vec::with_capacity(total_size);
+
+    // ELF header
+    elf.extend_from_slice(&generate_elf_header(entry_addr, num_phdrs));
+
+    // Single program header for code + rodata (RX - need execute for code, read for rodata)
+    let segment_vaddr = BASE_ADDR + code_offset as u64;
+    elf.extend_from_slice(&generate_program_header(
+        code_offset as u64,
+        segment_vaddr,
+        segment_size as u64,
+        segment_size as u64,
+        SEGMENT_RX,
+        0x1000,
+    ));
+
+    // Code section - need to patch rodata addresses
+    let mut code = compiled.code.clone();
+    patch_rodata_addresses(&mut code, rodata_vaddr);
+    elf.extend_from_slice(&code);
+
+    // Padding between code and rodata
+    let padding = rodata_offset - (code_offset + code_size);
+    elf.extend(std::iter::repeat(0u8).take(padding));
+
+    // Read-only data section
+    elf.extend_from_slice(&compiled.rodata);
+
+    // Generate debug sidecar if we have debug info
+    let debug_sidecar = compiled.debug_info.map(|debug_info| {
+        let mut sidecar = Vec::new();
+        write_skydbg(&debug_info, &mut sidecar).expect("failed to serialize debug info");
+        sidecar
+    });
+
+    ElfWithDebug { elf, debug_sidecar }
 }
 
 /// Patch the rodata addresses in the generated code
@@ -153,20 +226,21 @@ fn patch_rodata_addresses(code: &mut [u8], rodata_vaddr: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mir::{AssertInfo, CmpOp, Inst, MirFunction, Reg};
+    use debuginfo::read_skydbg;
+    use mir::{AssertInfo, CmpOp, FunctionDebugInfo, InstKind, MirFunction, Reg, SourceSpan};
 
     #[test]
     fn test_generate_elf_simple() {
         let mut func = MirFunction::new_function("main".to_string());
-        func.emit(Inst::LoadImm {
+        func.emit(InstKind::LoadImm {
             dst: Reg(0),
             value: 1,
         });
-        func.emit(Inst::LoadImm {
+        func.emit(InstKind::LoadImm {
             dst: Reg(1),
             value: 1,
         });
-        func.emit(Inst::Cmp {
+        func.emit(InstKind::Cmp {
             op: CmpOp::Eq,
             dst: Reg(2),
             left: Reg(0),
@@ -180,7 +254,7 @@ mod tests {
                 source: "1 == 1".to_string(),
             },
         );
-        func.emit(Inst::Ret);
+        func.emit(InstKind::Ret);
 
         let elf = generate_elf(&func, "test.skyl");
 
@@ -213,5 +287,291 @@ mod tests {
         let patched = u32::from_le_bytes([code[0], code[1], code[2], code[3]]);
         let patched_imm = (patched >> 5) & 0xffff;
         assert_eq!(patched_imm, 0x1010); // Low 16 bits of 0x401010
+    }
+
+    #[test]
+    fn test_generate_elf_with_debug() {
+        let mut func = MirFunction::new_function("main".to_string());
+        func.debug_info = FunctionDebugInfo {
+            span: Some(SourceSpan {
+                source_id: "test.skyl".to_string(),
+                line: 1,
+                col: 1,
+                end_line: 3,
+                end_col: 1,
+            }),
+            source_id: Some("test.skyl".to_string()),
+        };
+
+        let span = SourceSpan {
+            source_id: "test.skyl".to_string(),
+            line: 2,
+            col: 3,
+            end_line: 2,
+            end_col: 20,
+        };
+
+        func.emit_with_span(
+            InstKind::LoadImm {
+                dst: Reg(0),
+                value: 1,
+            },
+            span.clone(),
+        );
+        func.emit_with_span(
+            InstKind::LoadImm {
+                dst: Reg(1),
+                value: 1,
+            },
+            span.clone(),
+        );
+        func.emit_with_span(
+            InstKind::Cmp {
+                op: CmpOp::Eq,
+                dst: Reg(2),
+                left: Reg(0),
+                right: Reg(1),
+            },
+            span,
+        );
+        func.emit_assert(
+            Reg(2),
+            AssertInfo {
+                line: 2,
+                col: 3,
+                source: "1 == 1".to_string(),
+            },
+        );
+        func.emit(InstKind::Ret);
+
+        let result = generate_elf_with_debug(&func, "test.skyl");
+
+        // Check ELF is valid
+        assert_eq!(&result.elf[0..4], &[0x7f, b'E', b'L', b'F']);
+
+        // Check we have debug sidecar
+        assert!(result.debug_sidecar.is_some());
+
+        // Verify debug sidecar can be read back
+        let sidecar = result.debug_sidecar.unwrap();
+        let debug_info = read_skydbg(&mut &sidecar[..]).unwrap();
+
+        assert_eq!(debug_info.sources.len(), 1);
+        assert_eq!(debug_info.symbols.len(), 1);
+        assert_eq!(debug_info.symbols[0].name, "main");
+        assert!(!debug_info.line_map.is_empty());
+    }
+
+    #[test]
+    fn test_generate_elf_with_debug_no_spans() {
+        let mut func = MirFunction::new_function("main".to_string());
+        func.emit(InstKind::LoadImm {
+            dst: Reg(0),
+            value: 1,
+        });
+        func.emit(InstKind::Assert { cond: Reg(0), msg_id: 0 });
+        func.asserts.push(AssertInfo {
+            line: 1,
+            col: 1,
+            source: "1".to_string(),
+        });
+        func.emit(InstKind::Ret);
+
+        let result = generate_elf_with_debug(&func, "test.skyl");
+
+        // Check ELF is valid
+        assert_eq!(&result.elf[0..4], &[0x7f, b'E', b'L', b'F']);
+
+        // Should still have debug sidecar even without span info
+        assert!(result.debug_sidecar.is_some());
+
+        let sidecar = result.debug_sidecar.unwrap();
+        let debug_info = read_skydbg(&mut &sidecar[..]).unwrap();
+
+        // Should have the function symbol
+        assert_eq!(debug_info.symbols.len(), 1);
+    }
+
+    #[test]
+    fn test_execute_minimal_elf() {
+        use std::fs::{self, File};
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
+
+        // Minimal function: just return (which calls exit(0))
+        let mut func = MirFunction::new_function("main".to_string());
+        func.emit(InstKind::Ret);
+
+        let elf = generate_elf(&func, "test.skyl");
+
+        // Write to temp file
+        let binary_path = "/tmp/test_elf_minimal.elf";
+        {
+            let mut f = File::create(binary_path).unwrap();
+            f.write_all(&elf).unwrap();
+        }
+
+        // Make executable
+        let mut perms = fs::metadata(binary_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(binary_path, perms).unwrap();
+
+        // Small delay to ensure file is written
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        // Execute and check exit code
+        let output = Command::new(binary_path)
+            .output()
+            .expect("Failed to execute binary");
+
+        // Clean up
+        let _ = fs::remove_file(binary_path);
+
+        // Should exit with code 0
+        assert!(
+            output.status.success(),
+            "Binary exited with non-zero status: {}. stderr: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn test_execute_elf_with_loads() {
+        use std::fs::{self, File};
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
+
+        // Function with loads and compare but no assert
+        let mut func = MirFunction::new_function("main".to_string());
+        func.emit(InstKind::LoadImm {
+            dst: Reg(0),
+            value: 1,
+        });
+        func.emit(InstKind::LoadImm {
+            dst: Reg(1),
+            value: 1,
+        });
+        func.emit(InstKind::Cmp {
+            op: CmpOp::Eq,
+            dst: Reg(2),
+            left: Reg(0),
+            right: Reg(1),
+        });
+        func.emit(InstKind::Ret);
+
+        let elf = generate_elf(&func, "test.skyl");
+
+        // Write to temp file
+        let binary_path = "/tmp/test_elf_loads.elf";
+        {
+            let mut f = File::create(binary_path).unwrap();
+            f.write_all(&elf).unwrap();
+        }
+
+        // Make executable
+        let mut perms = fs::metadata(binary_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(binary_path, perms).unwrap();
+
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        let output = Command::new(binary_path)
+            .output()
+            .expect("Failed to execute binary");
+
+        let _ = fs::remove_file(binary_path);
+
+        assert!(
+            output.status.success(),
+            "Binary exited with non-zero status: {}. stderr: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn test_execute_generated_elf_with_assert() {
+        use std::fs::{self, File};
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
+
+        let mut func = MirFunction::new_function("main".to_string());
+        func.emit(InstKind::LoadImm {
+            dst: Reg(0),
+            value: 1,
+        });
+        func.emit(InstKind::LoadImm {
+            dst: Reg(1),
+            value: 1,
+        });
+        func.emit(InstKind::Cmp {
+            op: CmpOp::Eq,
+            dst: Reg(2),
+            left: Reg(0),
+            right: Reg(1),
+        });
+        func.emit_assert(
+            Reg(2),
+            AssertInfo {
+                line: 1,
+                col: 1,
+                source: "1 == 1".to_string(),
+            },
+        );
+        func.emit(InstKind::Ret);
+
+        let elf = generate_elf(&func, "test.skyl");
+
+        // Write to temp file
+        let binary_path = "/tmp/test_elf_execute.elf";
+        {
+            let mut f = File::create(binary_path).unwrap();
+            f.write_all(&elf).unwrap();
+        }
+
+        // Make executable
+        let mut perms = fs::metadata(binary_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(binary_path, perms).unwrap();
+
+        // Small delay to ensure file is written
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        // Execute and check exit code
+        let output = Command::new(binary_path)
+            .output()
+            .expect("Failed to execute binary");
+
+        // Should exit with code 0 (assert passed)
+        if !output.status.success() {
+            // Keep binary for debugging
+            eprintln!("Binary kept at: {}", binary_path);
+
+            // Dump code bytes
+            eprintln!("Code bytes (first 200):");
+            for (i, byte) in elf.iter().skip(176).take(200).enumerate() {
+                if i % 16 == 0 && i > 0 {
+                    eprintln!();
+                }
+                if i % 4 == 0 {
+                    eprint!(" ");
+                }
+                eprint!("{:02x}", byte);
+            }
+            eprintln!();
+
+            panic!(
+                "Binary exited with non-zero status: {}. stderr: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        // Clean up on success
+        let _ = fs::remove_file(binary_path);
     }
 }

@@ -5,6 +5,9 @@ members = [
     "crates/baselang",
     "crates/mir",
     "crates/codegen",
+    "crates/debuginfo",
+    "crates/debug",
+    "crates/debugger",
     "crates/jit",
     "crates/elf",
     "crates/compiler",
@@ -28,6 +31,9 @@ parser = { path = "crates/parser" }
 baselang = { path = "crates/baselang" }
 mir = { path = "crates/mir" }
 codegen = { path = "crates/codegen" }
+debuginfo = { path = "crates/debuginfo" }
+debug = { path = "crates/debug" }
+debugger = { path = "crates/debugger" }
 jit = { path = "crates/jit" }
 elf = { path = "crates/elf" }
 compiler = { path = "crates/compiler" }

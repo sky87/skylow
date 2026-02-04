@@ -1,5 +1,23 @@
 //! MIR types - Register-based intermediate representation
 
+/// Source span information (owned, for debug info)
+///
+/// Unlike SourceInfo which borrows from a SourceModule, this type
+/// owns all its data and can be stored in MIR without lifetime constraints.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourceSpan {
+    /// Source identifier (file path, "<prelude>", etc.)
+    pub source_id: String,
+    /// Start line number (1-based)
+    pub line: u32,
+    /// Start column number (1-based)
+    pub col: u32,
+    /// End line number (1-based)
+    pub end_line: u32,
+    /// End column number (1-based)
+    pub end_col: u32,
+}
+
 /// Source location information for assertion failure reporting
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssertInfo {
@@ -35,9 +53,30 @@ pub enum CmpOp {
     Gte,
 }
 
-/// MIR instruction
+/// MIR instruction with optional source span
 #[derive(Debug, Clone, PartialEq)]
-pub enum Inst {
+pub struct Inst {
+    /// The instruction kind
+    pub kind: InstKind,
+    /// Optional source span for debug info
+    pub span: Option<SourceSpan>,
+}
+
+impl Inst {
+    /// Create an instruction without span information
+    pub fn new(kind: InstKind) -> Self {
+        Self { kind, span: None }
+    }
+
+    /// Create an instruction with span information
+    pub fn with_span(kind: InstKind, span: SourceSpan) -> Self {
+        Self { kind, span: Some(span) }
+    }
+}
+
+/// MIR instruction kinds
+#[derive(Debug, Clone, PartialEq)]
+pub enum InstKind {
     /// Load immediate value into register
     LoadImm { dst: Reg, value: i64 },
     /// Binary arithmetic operation
@@ -59,6 +98,15 @@ pub enum FunctionKind {
     Function,
 }
 
+/// Debug information for a function
+#[derive(Debug, Clone, Default)]
+pub struct FunctionDebugInfo {
+    /// Source span for the function declaration
+    pub span: Option<SourceSpan>,
+    /// Source identifier (file path)
+    pub source_id: Option<String>,
+}
+
 /// A compiled MIR function (test body or function body)
 #[derive(Debug, Clone)]
 pub struct MirFunction {
@@ -69,6 +117,8 @@ pub struct MirFunction {
     pub asserts: Vec<AssertInfo>,
     /// Whether this is a test or a regular function
     pub kind: FunctionKind,
+    /// Debug information for this function
+    pub debug_info: FunctionDebugInfo,
 }
 
 impl MirFunction {
@@ -79,6 +129,7 @@ impl MirFunction {
             next_reg: 0,
             asserts: Vec::new(),
             kind: FunctionKind::Test,
+            debug_info: FunctionDebugInfo::default(),
         }
     }
 
@@ -89,6 +140,7 @@ impl MirFunction {
             next_reg: 0,
             asserts: Vec::new(),
             kind: FunctionKind::Function,
+            debug_info: FunctionDebugInfo::default(),
         }
     }
 
@@ -98,15 +150,29 @@ impl MirFunction {
         reg
     }
 
-    pub fn emit(&mut self, inst: Inst) {
-        self.instructions.push(inst);
+    /// Emit an instruction without span information
+    pub fn emit(&mut self, kind: InstKind) {
+        self.instructions.push(Inst::new(kind));
+    }
+
+    /// Emit an instruction with span information
+    pub fn emit_with_span(&mut self, kind: InstKind, span: SourceSpan) {
+        self.instructions.push(Inst::with_span(kind, span));
     }
 
     /// Add an assert instruction with source info, returns the msg_id
     pub fn emit_assert(&mut self, cond: Reg, info: AssertInfo) -> u32 {
         let msg_id = self.asserts.len() as u32;
         self.asserts.push(info);
-        self.instructions.push(Inst::Assert { cond, msg_id });
+        self.instructions.push(Inst::new(InstKind::Assert { cond, msg_id }));
+        msg_id
+    }
+
+    /// Add an assert instruction with source info and span, returns the msg_id
+    pub fn emit_assert_with_span(&mut self, cond: Reg, info: AssertInfo, span: SourceSpan) -> u32 {
+        let msg_id = self.asserts.len() as u32;
+        self.asserts.push(info);
+        self.instructions.push(Inst::with_span(InstKind::Assert { cond, msg_id }, span));
         msg_id
     }
 }

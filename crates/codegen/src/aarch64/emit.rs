@@ -95,6 +95,20 @@ impl Emitter {
         }
     }
 
+    /// MOV Xd, #imm64 using full MOVZ + MOVK sequence (always emits 32-bit address)
+    ///
+    /// This is used for addresses that will be patched later, ensuring there are
+    /// always MOVK instructions available for the higher bits.
+    pub fn mov_imm64_addr(&mut self, rd: ArmReg, imm: u64) {
+        // MOVZ for bits 0-15
+        let inst = 0xd2800000 | (((imm & 0xffff) as u32) << 5) | (rd as u32);
+        self.emit32(inst);
+
+        // Always emit MOVK for bits 16-31 (needed for patching to addresses > 64KB)
+        let inst = 0xf2a00000 | ((((imm >> 16) & 0xffff) as u32) << 5) | (rd as u32);
+        self.emit32(inst);
+    }
+
     /// MOV Xd, Xm (ORR Xd, XZR, Xm)
     #[allow(dead_code)] // Will be used for register-to-register moves
     pub fn mov_reg(&mut self, rd: ArmReg, rm: ArmReg) {
