@@ -1,0 +1,10 @@
+fn square(x: I64) -> I64:
+  return x * x
+
+fn sum_of_squares(a: I64, b: I64) -> I64:
+  return square(a) + square(b)
+
+fn main() -> I64:
+  assert(square(3) == 9)
+  assert(sum_of_squares(3, 4) == 25)
+  return 0

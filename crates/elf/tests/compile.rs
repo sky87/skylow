@@ -5,7 +5,7 @@
 
 use bumpalo::Bump;
 use baselang::{lower_program, parse_with_prelude};
-use elf::generate_elf;
+use elf::generate_elf_from_program;
 use mir::lower_program as lower_to_mir;
 use std::path::Path;
 
@@ -27,16 +27,15 @@ fn run_test(path: &Path) -> datatest_stable::Result<()> {
     // Lower to MIR
     let mir_program = lower_to_mir(&program);
 
-    // Get the main function (should be the first function)
-    let main_func = mir_program
-        .functions
-        .iter()
-        .find(|f| f.name == "main")
-        .expect("No main function found");
+    // Verify main function exists
+    assert!(
+        mir_program.functions.iter().any(|f| f.name == "main"),
+        "No main function found"
+    );
 
-    // Generate ELF
+    // Generate ELF from full program (supports function calls)
     let filename = path.file_name().unwrap().to_str().unwrap();
-    let elf = generate_elf(main_func, filename);
+    let elf = generate_elf_from_program(&mir_program, filename);
 
     // Verify ELF header
     assert_eq!(&elf[0..4], &[0x7f, b'E', b'L', b'F'], "Invalid ELF magic");

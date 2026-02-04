@@ -6,9 +6,9 @@ pub mod aarch64;
 pub mod elf64;
 
 use debuginfo::write_skydbg;
-use mir::MirFunction;
+use mir::{MirFunction, MirProgram};
 
-use crate::aarch64::codegen::{compile_binary, compile_binary_with_debug};
+use crate::aarch64::codegen::{compile_binary, compile_binary_with_debug, compile_program_binary, compile_program_binary_with_debug};
 use crate::elf64::{
     generate_elf_header, generate_program_header, header_size, BASE_ADDR, SEGMENT_RX,
 };
@@ -125,6 +125,139 @@ pub fn generate_elf_with_debug(func: &MirFunction, filename: &str) -> ElfWithDeb
     elf.extend_from_slice(&generate_elf_header(entry_addr, num_phdrs));
 
     // Single program header for code + rodata (RX - need execute for code, read for rodata)
+    let segment_vaddr = BASE_ADDR + code_offset as u64;
+    elf.extend_from_slice(&generate_program_header(
+        code_offset as u64,
+        segment_vaddr,
+        segment_size as u64,
+        segment_size as u64,
+        SEGMENT_RX,
+        0x1000,
+    ));
+
+    // Code section - need to patch rodata addresses
+    let mut code = compiled.code.clone();
+    patch_rodata_addresses(&mut code, rodata_vaddr);
+    elf.extend_from_slice(&code);
+
+    // Padding between code and rodata
+    let padding = rodata_offset - (code_offset + code_size);
+    elf.extend(std::iter::repeat(0u8).take(padding));
+
+    // Read-only data section
+    elf.extend_from_slice(&compiled.rodata);
+
+    // Generate debug sidecar if we have debug info
+    let debug_sidecar = compiled.debug_info.map(|debug_info| {
+        let mut sidecar = Vec::new();
+        write_skydbg(&debug_info, &mut sidecar).expect("failed to serialize debug info");
+        sidecar
+    });
+
+    ElfWithDebug { elf, debug_sidecar }
+}
+
+/// Generate a complete ELF executable from a MIR program (multiple functions)
+///
+/// All functions in the program are compiled and linked together. The `main`
+/// function is used as the entry point.
+pub fn generate_elf_from_program(program: &MirProgram, filename: &str) -> Vec<u8> {
+    // Compile the program to machine code
+    let compiled = compile_program_binary(program, filename);
+
+    // Calculate layout using a single LOAD segment for simplicity:
+    // - ELF header (64 bytes)
+    // - 1 program header (56 bytes)
+    // - Code section (variable)
+    // - Padding to 8-byte boundary
+    // - Read-only data section (variable)
+
+    let num_phdrs = 1u16;
+    let headers_size = header_size(num_phdrs);
+    let code_offset = headers_size;
+    let code_size = compiled.code.len();
+
+    // Align rodata to 8 bytes after code
+    let rodata_offset = (code_offset + code_size + 7) & !7;
+    let rodata_size = compiled.rodata.len();
+
+    // Total file size and segment size
+    let total_size = rodata_offset + rodata_size;
+    let segment_size = total_size - code_offset;
+
+    // Entry point is at the main function
+    let entry_addr = BASE_ADDR + code_offset as u64 + compiled.entry_offset as u64;
+
+    // Rodata virtual address (for patching message pointers)
+    let rodata_vaddr = BASE_ADDR + rodata_offset as u64;
+
+    // Generate the ELF binary
+    let mut elf = Vec::with_capacity(total_size);
+
+    // ELF header
+    elf.extend_from_slice(&generate_elf_header(entry_addr, num_phdrs));
+
+    // Single program header for code + rodata (RX - need execute for code, read for rodata)
+    let segment_vaddr = BASE_ADDR + code_offset as u64;
+    elf.extend_from_slice(&generate_program_header(
+        code_offset as u64,
+        segment_vaddr,
+        segment_size as u64,
+        segment_size as u64,
+        SEGMENT_RX,
+        0x1000,
+    ));
+
+    // Code section - need to patch rodata addresses
+    let mut code = compiled.code.clone();
+    patch_rodata_addresses(&mut code, rodata_vaddr);
+    elf.extend_from_slice(&code);
+
+    // Padding between code and rodata
+    let padding = rodata_offset - (code_offset + code_size);
+    elf.extend(std::iter::repeat(0u8).take(padding));
+
+    // Read-only data section
+    elf.extend_from_slice(&compiled.rodata);
+
+    elf
+}
+
+/// Generate a complete ELF executable from a MIR program with debug information
+///
+/// All functions in the program are compiled and linked together. The `main`
+/// function is used as the entry point.
+pub fn generate_elf_from_program_with_debug(program: &MirProgram, filename: &str) -> ElfWithDebug {
+    // Compile the program to machine code with debug info
+    let compiled = compile_program_binary_with_debug(program, filename);
+
+    // Calculate layout
+    let num_phdrs = 1u16;
+    let headers_size = header_size(num_phdrs);
+    let code_offset = headers_size;
+    let code_size = compiled.code.len();
+
+    // Align rodata to 8 bytes after code
+    let rodata_offset = (code_offset + code_size + 7) & !7;
+    let rodata_size = compiled.rodata.len();
+
+    // Total file size and segment size
+    let total_size = rodata_offset + rodata_size;
+    let segment_size = total_size - code_offset;
+
+    // Entry point is at the main function
+    let entry_addr = BASE_ADDR + code_offset as u64 + compiled.entry_offset as u64;
+
+    // Rodata virtual address (for patching message pointers)
+    let rodata_vaddr = BASE_ADDR + rodata_offset as u64;
+
+    // Generate the ELF binary
+    let mut elf = Vec::with_capacity(total_size);
+
+    // ELF header
+    elf.extend_from_slice(&generate_elf_header(entry_addr, num_phdrs));
+
+    // Single program header for code + rodata
     let segment_vaddr = BASE_ADDR + code_offset as u64;
     elf.extend_from_slice(&generate_program_header(
         code_offset as u64,
@@ -573,5 +706,178 @@ mod tests {
 
         // Clean up on success
         let _ = fs::remove_file(binary_path);
+    }
+
+    #[test]
+    fn test_generate_elf_from_program() {
+        use mir::{BinOp, MirProgram};
+
+        // Create a program with two functions: add and main
+        let mut program = MirProgram::default();
+
+        // Helper function: add(a, b) -> a + b
+        let mut add_func = MirFunction::new_function("add".to_string());
+        let param_a = Reg(0);
+        let param_b = Reg(1);
+        add_func.params = vec![
+            mir::MirParam { name: "a".to_string(), reg: param_a },
+            mir::MirParam { name: "b".to_string(), reg: param_b },
+        ];
+        add_func.next_reg = 2; // Parameters consume first 2 regs
+        let result = add_func.alloc_reg();
+        add_func.emit(InstKind::BinOp {
+            op: BinOp::Add,
+            dst: result,
+            left: param_a,
+            right: param_b,
+        });
+        add_func.emit(InstKind::RetVal { value: result });
+        program.functions.push(add_func);
+
+        // Main function that calls add
+        let mut main_func = MirFunction::new_function("main".to_string());
+        let arg1 = main_func.alloc_reg();
+        let arg2 = main_func.alloc_reg();
+        let call_result = main_func.alloc_reg();
+        let expected = main_func.alloc_reg();
+        let cmp_result = main_func.alloc_reg();
+
+        main_func.emit(InstKind::LoadImm { dst: arg1, value: 2 });
+        main_func.emit(InstKind::LoadImm { dst: arg2, value: 3 });
+        main_func.emit(InstKind::Call {
+            dst: call_result,
+            func_name: "add".to_string(),
+            args: vec![arg1, arg2],
+        });
+        main_func.emit(InstKind::LoadImm { dst: expected, value: 5 });
+        main_func.emit(InstKind::Cmp {
+            op: CmpOp::Eq,
+            dst: cmp_result,
+            left: call_result,
+            right: expected,
+        });
+        main_func.emit_assert(
+            cmp_result,
+            AssertInfo {
+                line: 5,
+                col: 3,
+                source: "add(2, 3) == 5".to_string(),
+            },
+        );
+        main_func.emit(InstKind::Ret);
+        program.functions.push(main_func);
+
+        // Generate ELF from program
+        let elf = generate_elf_from_program(&program, "test.skyl");
+
+        // Check ELF magic
+        assert_eq!(&elf[0..4], &[0x7f, b'E', b'L', b'F']);
+
+        // Check it's a 64-bit ELF
+        assert_eq!(elf[4], 2);
+
+        // Check it's little endian
+        assert_eq!(elf[5], 1);
+
+        // Check machine type is AArch64 (183 = 0xB7)
+        assert_eq!(elf[18], 0xB7);
+        assert_eq!(elf[19], 0x00);
+    }
+
+    #[test]
+    fn test_execute_elf_from_program() {
+        use mir::{BinOp, MirProgram};
+        use std::fs::{self, File};
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
+
+        // Create a program with two functions: add and main
+        let mut program = MirProgram::default();
+
+        // Helper function: add(a, b) -> a + b
+        let mut add_func = MirFunction::new_function("add".to_string());
+        let param_a = Reg(0);
+        let param_b = Reg(1);
+        add_func.params = vec![
+            mir::MirParam { name: "a".to_string(), reg: param_a },
+            mir::MirParam { name: "b".to_string(), reg: param_b },
+        ];
+        add_func.next_reg = 2; // Parameters consume first 2 regs
+        let result = add_func.alloc_reg();
+        add_func.emit(InstKind::BinOp {
+            op: BinOp::Add,
+            dst: result,
+            left: param_a,
+            right: param_b,
+        });
+        add_func.emit(InstKind::RetVal { value: result });
+        program.functions.push(add_func);
+
+        // Main function that calls add and asserts the result
+        let mut main_func = MirFunction::new_function("main".to_string());
+        let arg1 = main_func.alloc_reg();
+        let arg2 = main_func.alloc_reg();
+        let call_result = main_func.alloc_reg();
+        let expected = main_func.alloc_reg();
+        let cmp_result = main_func.alloc_reg();
+
+        main_func.emit(InstKind::LoadImm { dst: arg1, value: 2 });
+        main_func.emit(InstKind::LoadImm { dst: arg2, value: 3 });
+        main_func.emit(InstKind::Call {
+            dst: call_result,
+            func_name: "add".to_string(),
+            args: vec![arg1, arg2],
+        });
+        main_func.emit(InstKind::LoadImm { dst: expected, value: 5 });
+        main_func.emit(InstKind::Cmp {
+            op: CmpOp::Eq,
+            dst: cmp_result,
+            left: call_result,
+            right: expected,
+        });
+        main_func.emit_assert(
+            cmp_result,
+            AssertInfo {
+                line: 5,
+                col: 3,
+                source: "add(2, 3) == 5".to_string(),
+            },
+        );
+        main_func.emit(InstKind::Ret);
+        program.functions.push(main_func);
+
+        // Generate ELF from program
+        let elf = generate_elf_from_program(&program, "test.skyl");
+
+        // Write to temp file
+        let binary_path = "/tmp/test_elf_program.elf";
+        {
+            let mut f = File::create(binary_path).unwrap();
+            f.write_all(&elf).unwrap();
+        }
+
+        // Make executable
+        let mut perms = fs::metadata(binary_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(binary_path, perms).unwrap();
+
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        // Execute and check exit code
+        let output = Command::new(binary_path)
+            .output()
+            .expect("Failed to execute binary");
+
+        // Clean up
+        let _ = fs::remove_file(binary_path);
+
+        // Should exit with code 0 (assert passed)
+        assert!(
+            output.status.success(),
+            "Binary exited with non-zero status: {}. stderr: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }

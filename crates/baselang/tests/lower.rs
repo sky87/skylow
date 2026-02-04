@@ -12,6 +12,14 @@ fn format_expr(expr: &baselang::Expr, indent: usize) -> String {
     let pad = "  ".repeat(indent);
     match &expr.kind {
         ExprKind::Int(n) => format!("{}Int({})", pad, n),
+        ExprKind::Var(name) => format!("{}Var({})", pad, name),
+        ExprKind::Call { name, args } => {
+            let mut lines = vec![format!("{}Call({})", pad, name)];
+            for arg in *args {
+                lines.push(format_expr(arg, indent + 1));
+            }
+            lines.join("\n")
+        }
         ExprKind::BinOp { op, left, right } => {
             format!(
                 "{}BinOp({:?})\n{}\n{}",
@@ -43,6 +51,9 @@ fn format_stmt(stmt: &baselang::Stmt, indent: usize) -> String {
         StmtKind::Assert { expr } => {
             format!("{}Assert\n{}", pad, format_expr(expr, indent + 1))
         }
+        StmtKind::Return { expr } => {
+            format!("{}Return\n{}", pad, format_expr(expr, indent + 1))
+        }
     }
 }
 
@@ -56,8 +67,12 @@ fn format_decl(decl: &baselang::Decl) -> String {
             }
             lines.join("\n")
         }
-        DeclKind::Fn { name, body } => {
-            let mut lines = vec![format!("Fn \"{}\"", name)];
+        DeclKind::Fn { name, params, return_type, body } => {
+            let param_str = params.iter()
+                .map(|p| format!("{}: {:?}", p.name, p.ty))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let mut lines = vec![format!("Fn \"{}\"({}) -> {:?}", name, param_str, return_type)];
             for stmt in *body {
                 lines.push(format_stmt(stmt, 1));
             }

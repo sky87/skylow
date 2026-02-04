@@ -32,6 +32,14 @@ pub struct ParseResult<'a> {
 ///
 /// Uses the parser's internal string interner for all string interning.
 pub fn parse_with_prelude<'a>(arena: &'a Bump, source: &str) -> ParseResult<'a> {
+    parse_with_prelude_named(arena, source, "<input>")
+}
+
+/// Parse source code with the BaseLang prelude applied, using a custom source name.
+///
+/// Same as `parse_with_prelude` but allows specifying the source filename for
+/// better error messages and debug info.
+pub fn parse_with_prelude_named<'a>(arena: &'a Bump, source: &str, source_name: &'a str) -> ParseResult<'a> {
     // Create prelude source module
     let prelude_module = arena.alloc(SourceModule::prelude(PRELUDE));
 
@@ -70,7 +78,7 @@ pub fn parse_with_prelude<'a>(arena: &'a Bump, source: &str) -> ParseResult<'a> 
 
     // Create source module for user code
     let user_source = arena.alloc_str(source);
-    let source_module = arena.alloc(SourceModule::synthetic(user_source, "<input>"));
+    let source_module = arena.alloc(SourceModule::synthetic(user_source, source_name));
 
     // Switch to user source - offsets start at 0, lines at 1
     parser.set_source(source_module);

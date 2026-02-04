@@ -1,0 +1,7 @@
+fn add(a: I64, b: I64) -> I64:
+  return a + b
+
+test function call:
+  assert(add(2, 3) == 5)
+  assert(add(10, 20) == 30)
+  assert(add(0, 0) == 0)

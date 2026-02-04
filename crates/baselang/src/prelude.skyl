@@ -4,9 +4,16 @@
 # - Integer literals and arithmetic
 # - Comparison operators
 # - Test infrastructure (assert, test declarations)
+# - Function declarations with parameters and return types
 
 # Integer literals
 syntax int [0..9]+ : Expr
+
+# Identifiers (variables)
+syntax var [a..z_][a..zA..Z0..9_]* : Expr
+
+# Function calls: name(arg, ...)
+syntax call [a..z_][a..zA..Z0..9_]* "(" (Expr ("," Expr)*)? ")" : Expr
 
 # Arithmetic operators (precedence 10 for add/sub, 20 for mul/div)
 syntax add Expr "+"@10 Expr@10 : Expr
@@ -29,8 +36,19 @@ syntax gte Expr ">="@5 Expr@5 : Expr
 syntax_category Stmt
 
 syntax assert "assert" "(" Expr ")" : Stmt
+syntax return "return" Expr : Stmt
 syntax test |> "test" [^\n:]+ ":" >> Stmt+ : Stmt
 
-# Function declarations
-# Use negated charset since positive ranges don't work well with the parser
-syntax fn |> "fn" [^ \t\n(]+ "()" ":" >> Stmt+ : Stmt
+# Type annotations category
+syntax_category Type
+
+syntax typeI64 "I64" : Type
+
+# Function parameter syntax (name: Type)
+syntax_category Param
+
+syntax param [a..z_][a..zA..Z0..9_]* ":" Type : Param
+
+# Function declarations with parameters and return type
+# fn name(param, ...) -> ReturnType:
+syntax fn |> "fn" [a..z_][a..zA..Z0..9_]* "(" (Param ("," Param)*)? ")" "->" Type ":" >> Stmt+ : Stmt

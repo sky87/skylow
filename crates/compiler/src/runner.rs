@@ -4,7 +4,7 @@
 
 use bumpalo::Bump;
 use baselang::{lower_program, parse_with_prelude, Decl, DeclKind, Program};
-use jit::{compile_function, ExecutableMemory};
+use jit::{compile_program, ExecutableMemory};
 use mir::lower_program as lower_to_mir;
 
 /// Find the main function in a program
@@ -100,43 +100,56 @@ impl TestRunner {
         // Lower to MIR
         let mir_program = lower_to_mir(&program);
 
-        // Compile and run each test
+        // Compile entire program (links all functions together)
+        let compiled = compile_program(&mir_program);
+
+        // Create executable memory for the whole program
+        let mem = match ExecutableMemory::new(&compiled.code) {
+            Ok(m) => m,
+            Err(e) => {
+                return RunResult {
+                    results: vec![],
+                    parse_errors: vec![],
+                    lower_errors: vec![format!("JIT compilation failed: {}", e)],
+                };
+            }
+        };
+
+        // Run each test function
         let mut results = Vec::new();
-        for mir_func in &mir_program.functions {
-            let compiled = compile_function(mir_func);
-            let result = match ExecutableMemory::new(&compiled.code) {
-                Ok(mem) => {
-                    let test_fn: extern "C" fn() -> u8 = unsafe { mem.as_fn() };
-                    let ret = test_fn();
-                    if ret == 0 {
-                        TestResult {
-                            name: mir_func.name.clone(),
-                            passed: true,
-                            failure_message: None,
-                        }
-                    } else {
-                        // ret is 1-based assert index (0 = success)
-                        let assert_idx = (ret - 1) as usize;
-                        let failure_message = if let Some(info) = mir_func.asserts.get(assert_idx) {
-                            format!(
-                                "assertion failed at line {}:{}\n  assert({})",
-                                info.line, info.col, info.source
-                            )
-                        } else {
-                            format!("assertion {} failed", ret)
-                        };
-                        TestResult {
-                            name: mir_func.name.clone(),
-                            passed: false,
-                            failure_message: Some(failure_message),
-                        }
-                    }
+        for (idx, mir_func) in mir_program.functions.iter().enumerate() {
+            // Only run test functions (skip regular functions like helpers)
+            if mir_func.kind != mir::FunctionKind::Test {
+                continue;
+            }
+
+            let compiled_func = &compiled.functions[idx];
+            let test_fn: extern "C" fn() -> u8 =
+                unsafe { mem.as_fn_at_offset(compiled_func.offset) };
+            let ret = test_fn();
+
+            let result = if ret == 0 {
+                TestResult {
+                    name: mir_func.name.clone(),
+                    passed: true,
+                    failure_message: None,
                 }
-                Err(e) => TestResult {
+            } else {
+                // ret is 1-based assert index (0 = success)
+                let assert_idx = (ret - 1) as usize;
+                let failure_message = if let Some(info) = mir_func.asserts.get(assert_idx) {
+                    format!(
+                        "assertion failed at line {}:{}\n  assert({})",
+                        info.line, info.col, info.source
+                    )
+                } else {
+                    format!("assertion {} failed", ret)
+                };
+                TestResult {
                     name: mir_func.name.clone(),
                     passed: false,
-                    failure_message: Some(format!("JIT compilation failed: {}", e)),
-                },
+                    failure_message: Some(failure_message),
+                }
             };
             results.push(result);
         }
@@ -219,9 +232,17 @@ impl MainRunner {
             }
         };
 
-        // Find main function
-        let main_fn = match find_main_function(&program) {
-            Some(f) => f,
+        // Lower to MIR (all functions to enable calls between them)
+        let mir_program = lower_to_mir(&program);
+
+        // Find main function index
+        let main_idx = mir_program
+            .functions
+            .iter()
+            .position(|f| f.name == "main");
+
+        let main_idx = match main_idx {
+            Some(idx) => idx,
             None => {
                 return MainResult {
                     exit_code: 1,
@@ -232,18 +253,14 @@ impl MainRunner {
             }
         };
 
-        // Lower to MIR (just the main function)
-        let single_program = Program {
-            decls: std::slice::from_ref(main_fn),
-        };
-        let mir_program = lower_to_mir(&single_program);
-        let mir_func = &mir_program.functions[0];
+        // Compile entire program (links all functions together)
+        let compiled = compile_program(&mir_program);
+        let mir_func = &mir_program.functions[main_idx];
 
-        // JIT compile and run
-        let compiled = compile_function(mir_func);
         match ExecutableMemory::new(&compiled.code) {
             Ok(mem) => {
-                let main_fn: extern "C" fn() -> u8 = unsafe { mem.as_fn() };
+                let main_fn: extern "C" fn() -> u8 =
+                    unsafe { mem.as_fn_at_offset(compiled.functions[main_idx].offset) };
                 let ret = main_fn();
                 if ret == 0 {
                     MainResult {
@@ -431,13 +448,14 @@ mod tests {
     fn test_main_runner_simple() {
         let runner = MainRunner::new();
         let source = indoc! {"
-            fn main():
+            fn main() -> I64:
               assert(1 == 1)
+              return 0
         "};
         let result = runner.run(source);
-        assert!(result.parse_errors.is_empty());
-        assert!(result.lower_errors.is_empty());
-        assert!(result.success());
+        assert!(result.parse_errors.is_empty(), "parse errors: {:?}", result.parse_errors);
+        assert!(result.lower_errors.is_empty(), "lower errors: {:?}", result.lower_errors);
+        assert!(result.success(), "not successful: {:?}", result.failure_message);
         assert_eq!(result.exit_code, 0);
     }
 
@@ -445,19 +463,21 @@ mod tests {
     fn test_main_runner_default() {
         let runner = MainRunner::default();
         let source = indoc! {"
-            fn main():
+            fn main() -> I64:
               assert(1 == 1)
+              return 0
         "};
         let result = runner.run(source);
-        assert!(result.success());
+        assert!(result.success(), "not successful: {:?}", result.failure_message);
     }
 
     #[test]
     fn test_main_runner_failing() {
         let runner = MainRunner::new();
         let source = indoc! {"
-            fn main():
+            fn main() -> I64:
               assert(1 == 2)
+              return 0
         "};
         let result = runner.run(source);
         assert!(!result.success());
@@ -481,11 +501,12 @@ mod tests {
     fn test_compiler_simple() {
         let compiler = Compiler::new();
         let source = indoc! {"
-            fn main():
+            fn main() -> I64:
               assert(1 == 1)
+              return 0
         "};
         let result = compiler.compile(source, "test.skyl");
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "compile error: {:?}", result.err());
         let elf = result.unwrap();
         // Check ELF magic
         assert_eq!(&elf[0..4], &[0x7f, b'E', b'L', b'F']);
@@ -495,11 +516,12 @@ mod tests {
     fn test_compiler_default() {
         let compiler = Compiler::default();
         let source = indoc! {"
-            fn main():
+            fn main() -> I64:
               assert(1 == 1)
+              return 0
         "};
         let result = compiler.compile(source, "test.skyl");
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "compile error: {:?}", result.err());
     }
 
     #[test]
@@ -517,28 +539,28 @@ mod tests {
     #[test]
     fn test_runner_parse_error() {
         let runner = TestRunner::new();
-        // Invalid syntax - missing colon
-        let source = "test broken\n  assert(1 == 1)";
+        // Invalid syntax - completely broken
+        let source = "@#$%^&";
         let result = runner.run(source);
-        assert!(!result.parse_errors.is_empty());
+        assert!(!result.parse_errors.is_empty(), "expected parse errors but got none");
         assert!(!result.success());
     }
 
     #[test]
     fn test_main_runner_parse_error() {
         let runner = MainRunner::new();
-        // Invalid syntax - missing colon
-        let source = "fn main()\n  assert(1 == 1)";
+        // Invalid syntax - missing return type
+        let source = "fn main():\n  return 0";
         let result = runner.run(source);
-        assert!(!result.parse_errors.is_empty());
+        assert!(!result.parse_errors.is_empty(), "expected parse errors but got none");
         assert!(!result.success());
     }
 
     #[test]
     fn test_compiler_parse_error() {
         let compiler = Compiler::new();
-        // Invalid syntax - missing colon
-        let source = "fn main()\n  assert(1 == 1)";
+        // Invalid syntax - missing return type
+        let source = "fn main():\n  return 0";
         let result = compiler.compile(source, "test.skyl");
         assert!(result.is_err());
     }
@@ -548,8 +570,9 @@ mod tests {
         let compiler = Compiler::new();
         // Integer overflow triggers a lowering error
         let source = indoc! {"
-            fn main():
+            fn main() -> I64:
               assert(99999999999999999999 == 1)
+              return 0
         "};
         let result = compiler.compile(source, "test.skyl");
         assert!(result.is_err());

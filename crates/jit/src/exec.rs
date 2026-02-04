@@ -69,6 +69,20 @@ impl ExecutableMemory {
         std::mem::transmute_copy(&self.ptr)
     }
 
+    /// Get a function pointer to code at a specific offset
+    ///
+    /// # Safety
+    /// The caller must ensure:
+    /// - The offset is within the allocated memory
+    /// - The code at that offset is valid for the function signature
+    pub unsafe fn as_fn_at_offset<F>(&self, offset: usize) -> F
+    where
+        F: Copy,
+    {
+        let ptr = self.ptr.add(offset);
+        std::mem::transmute_copy(&ptr)
+    }
+
     /// Get the raw pointer to the code
     pub fn as_ptr(&self) -> *const u8 {
         self.ptr
@@ -119,5 +133,28 @@ mod tests {
         let mem = ExecutableMemory::new(code).expect("allocation failed");
         let ptr = mem.as_ptr();
         assert!(!ptr.is_null());
+    }
+
+    #[test]
+    fn test_as_fn_at_offset() {
+        // Two functions: first returns 42, second returns 99
+        let code: &[u8] = &[
+            // Function 1 at offset 0: mov w0, #42; ret
+            0x40, 0x05, 0x80, 0x52, // mov w0, #42
+            0xc0, 0x03, 0x5f, 0xd6, // ret
+            // Function 2 at offset 8: mov w0, #99; ret
+            0x60, 0x0c, 0x80, 0x52, // mov w0, #99
+            0xc0, 0x03, 0x5f, 0xd6, // ret
+        ];
+
+        let mem = ExecutableMemory::new(code).expect("allocation failed");
+
+        // Call function at offset 0
+        let func1: extern "C" fn() -> i32 = unsafe { mem.as_fn_at_offset(0) };
+        assert_eq!(func1(), 42);
+
+        // Call function at offset 8
+        let func2: extern "C" fn() -> i32 = unsafe { mem.as_fn_at_offset(8) };
+        assert_eq!(func2(), 99);
     }
 }

@@ -1,0 +1,6 @@
+# Test nested function calls - breakpoint in innermost function
+break square
+run
+# Show backtrace
+bt
+quit

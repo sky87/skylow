@@ -7,7 +7,7 @@ use bumpalo::Bump;
 use common::SourceLoc;
 use parser::SyntaxNode;
 
-use crate::ast::{BinOp, CmpOp, Decl, DeclKind, Expr, ExprKind, Program, SourceInfo, Stmt, StmtKind};
+use crate::ast::{BinOp, CmpOp, Decl, DeclKind, Expr, ExprKind, FnParam, Program, SourceInfo, Stmt, StmtKind, Type, new_node_id};
 
 /// Error during lowering
 #[derive(Debug, Clone, PartialEq)]
@@ -86,21 +86,28 @@ impl<'a> Lowerer<'a> {
                 name,
                 body: self.arena.alloc_slice_copy(&body),
             },
+            id: new_node_id(),
         })
     }
 
     fn lower_fn(&self, node: &SyntaxNode<'a>) -> Result<Decl<'a>, LowerError> {
-        // Function node structure: fn |> "fn" [a-z_][a-z0-9_]* "()" ":" >> Stmt+
+        // Function node structure: fn |> "fn" name "(" params ")" "->" Type ":" >> Stmt+
         // The name is captured by the character class patterns
 
         let mut name_chars = Vec::new();
+        let mut params = Vec::new();
         let mut body = Vec::new();
+        let mut return_type = Type::I64; // Default return type
 
         for child in node.children {
             if child.category == "Stmt" {
                 body.push(self.lower_stmt(child)?);
+            } else if child.category == "Param" {
+                params.push(self.lower_param(child)?);
+            } else if child.category == "Type" {
+                return_type = self.lower_type(child)?;
             } else if child.rule == "_charset" && child.category == "_char" {
-                // Character set captures individual chars
+                // Character set captures individual chars for the function name
                 if let Some(text) = child.text {
                     name_chars.push(text);
                 }
@@ -120,9 +127,53 @@ impl<'a> Lowerer<'a> {
             info,
             kind: DeclKind::Fn {
                 name,
+                params: self.arena.alloc_slice_copy(&params),
+                return_type,
                 body: self.arena.alloc_slice_copy(&body),
             },
+            id: new_node_id(),
         })
+    }
+
+    fn lower_param(&self, node: &SyntaxNode<'a>) -> Result<FnParam<'a>, LowerError> {
+        // Param node structure: param name ":" Type
+        let mut name_chars = Vec::new();
+        let mut param_type = Type::I64;
+
+        for child in node.children {
+            if child.category == "Type" {
+                param_type = self.lower_type(child)?;
+            } else if child.rule == "_charset" && child.category == "_char" {
+                if let Some(text) = child.text {
+                    name_chars.push(text);
+                }
+            }
+        }
+
+        let name_string: String = name_chars.concat();
+        let name = self.arena.alloc_str(name_string.trim());
+
+        let (start_offset, line, col, end) = get_full_span(node);
+        let start = SourceLoc::new(start_offset as u32, line, col);
+        let info = SourceInfo::new(node.info.module, start, end as u32);
+
+        Ok(FnParam {
+            name,
+            ty: param_type,
+            info,
+            id: new_node_id(),
+        })
+    }
+
+    fn lower_type(&self, node: &SyntaxNode<'a>) -> Result<Type, LowerError> {
+        match node.rule {
+            "typeI64" => Ok(Type::I64),
+            _ => Err(LowerError {
+                msg: format!("unknown type: {}", node.rule),
+                line: node.start().line,
+                col: node.start().col,
+            }),
+        }
     }
 
     fn lower_stmt(&self, node: &'a SyntaxNode<'a>) -> Result<Stmt<'a>, LowerError> {
@@ -147,6 +198,28 @@ impl<'a> Lowerer<'a> {
                     kind: StmtKind::Assert {
                         expr: self.arena.alloc(expr),
                     },
+                    id: new_node_id(),
+                })
+            }
+            "return" => {
+                // return "return" Expr
+                let expr_node = find_child_by_category(node, "Expr").ok_or_else(|| LowerError {
+                    msg: "return missing expression".to_string(),
+                    line: node.start().line,
+                    col: node.start().col,
+                })?;
+                let expr = self.lower_expr(expr_node)?;
+
+                let (start_offset, line, col, end) = get_full_span(node);
+                let start = SourceLoc::new(start_offset as u32, line, col);
+                let info = SourceInfo::new(node.info.module, start, end as u32);
+
+                Ok(Stmt {
+                    info,
+                    kind: StmtKind::Return {
+                        expr: self.arena.alloc(expr),
+                    },
+                    id: new_node_id(),
                 })
             }
             _ => Err(LowerError {
@@ -172,6 +245,28 @@ impl<'a> Lowerer<'a> {
                     col: node.start().col,
                 })?;
                 ExprKind::Int(value)
+            }
+            "var" => {
+                // Variable reference: extract name from charset chars
+                let name = self.extract_identifier_name(node);
+                ExprKind::Var(name)
+            }
+            "call" => {
+                // Function call: name(args)
+                let name = self.extract_identifier_name(node);
+                let expr_children: Vec<_> = node
+                    .children
+                    .iter()
+                    .filter(|c| c.category == "Expr")
+                    .collect();
+                let mut args = Vec::new();
+                for expr_node in expr_children {
+                    args.push(self.lower_expr(expr_node)?);
+                }
+                ExprKind::Call {
+                    name,
+                    args: self.arena.alloc_slice_copy(&args),
+                }
             }
             "add" | "sub" | "mul" | "div" => {
                 let op = match node.rule {
@@ -222,7 +317,21 @@ impl<'a> Lowerer<'a> {
             }
         };
 
-        Ok(Expr { info, kind })
+        Ok(Expr { info, kind, id: new_node_id() })
+    }
+
+    /// Extract identifier name from charset characters in a node
+    fn extract_identifier_name(&self, node: &SyntaxNode<'a>) -> &'a str {
+        let mut name_chars = Vec::new();
+        for child in node.children {
+            if child.rule == "_charset" && child.category == "_char" {
+                if let Some(text) = child.text {
+                    name_chars.push(text);
+                }
+            }
+        }
+        let name_string: String = name_chars.concat();
+        self.arena.alloc_str(name_string.trim())
     }
 
     fn get_binary_operands(&self, node: &SyntaxNode<'a>) -> Result<(Expr<'a>, Expr<'a>), LowerError> {
@@ -400,8 +509,8 @@ mod tests {
     fn test_lower_fn_decl() {
         let arena = Bump::new();
         let source = indoc! {"
-            fn main():
-              assert(1 == 1)
+            fn main() -> I64:
+              return 0
         "};
         let result = parse_with_prelude(&arena, source);
         assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
@@ -410,8 +519,9 @@ mod tests {
 
         assert_eq!(program.decls.len(), 1);
         match &program.decls[0].kind {
-            DeclKind::Fn { name, body } => {
+            DeclKind::Fn { name, params, body, .. } => {
                 assert_eq!(*name, "main");
+                assert_eq!(params.len(), 0);
                 assert_eq!(body.len(), 1);
             }
             _ => panic!("expected Fn declaration"),
@@ -422,8 +532,8 @@ mod tests {
     fn test_lower_fn_and_test() {
         let arena = Bump::new();
         let source = indoc! {"
-            fn main():
-              assert(1 == 1)
+            fn main() -> I64:
+              return 0
 
             test simple:
               assert(2 == 2)
@@ -490,8 +600,8 @@ mod tests {
     fn test_program_tests_iterator() {
         let arena = Bump::new();
         let source = indoc! {"
-            fn main():
-              assert(1 == 1)
+            fn main() -> I64:
+              return 0
 
             test a:
               assert(1 == 1)

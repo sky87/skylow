@@ -60,12 +60,16 @@ impl Session {
             None
         };
 
+        // Code base is ELF load address + header size (64-byte ELF header + 56-byte program header)
+        // This is where the code section actually starts in memory
+        let code_base = 0x400000 + 120; // BASE_ADDR + header_size(1)
+
         Ok(Self {
             target,
             debug_info,
             debugger,
             breakpoint_addrs: HashMap::new(),
-            code_base: 0x400000, // Default ELF load address
+            code_base,
             last_command: None,
             binary_path,
             output: Vec::new(),

@@ -1,8 +1,10 @@
 //! Lowering from BaseLang AST to MIR
 
+use std::collections::HashMap;
+
 use baselang::{BinOp as AstBinOp, CmpOp as AstCmpOp, DeclKind, Expr, ExprKind, Program, SourceInfo, Stmt, StmtKind};
 
-use crate::ir::{AssertInfo, BinOp, CmpOp, FunctionDebugInfo, InstKind, MirFunction, MirProgram, Reg, SourceSpan};
+use crate::ir::{AssertInfo, BinOp, CmpOp, FunctionDebugInfo, InstKind, MirFunction, MirParam, MirProgram, Reg, SourceSpan};
 
 /// Convert a SourceInfo to an owned SourceSpan
 fn to_source_span(info: &SourceInfo) -> SourceSpan {
@@ -30,23 +32,41 @@ pub fn lower_program(program: &Program) -> MirProgram {
                     span: Some(to_source_span(&decl.info)),
                     source_id: Some(decl.info.module.id.to_owned()),
                 };
+                // No parameters for tests
+                let locals = HashMap::new();
                 for stmt in *body {
-                    lower_stmt(&mut func, stmt);
+                    lower_stmt(&mut func, stmt, &locals);
                 }
                 func.emit(InstKind::Ret);
                 mir.functions.push(func);
             }
-            DeclKind::Fn { name, body } => {
+            DeclKind::Fn { name, params, body, .. } => {
                 let mut func = MirFunction::new_function((*name).to_owned());
                 // Set debug info from declaration
                 func.debug_info = FunctionDebugInfo {
                     span: Some(to_source_span(&decl.info)),
                     source_id: Some(decl.info.module.id.to_owned()),
                 };
-                for stmt in *body {
-                    lower_stmt(&mut func, stmt);
+
+                // Allocate registers for parameters and build locals map
+                let mut locals = HashMap::new();
+                for param in *params {
+                    let reg = func.alloc_reg();
+                    func.params.push(MirParam {
+                        name: param.name.to_owned(),
+                        reg,
+                    });
+                    locals.insert(param.name, reg);
                 }
-                func.emit(InstKind::Ret);
+
+                for stmt in *body {
+                    lower_stmt(&mut func, stmt, &locals);
+                }
+                // If there's no explicit return, emit Ret (for functions that don't return)
+                // In practice, functions should have a return statement
+                if !func.instructions.iter().any(|i| matches!(i.kind, InstKind::RetVal { .. })) {
+                    func.emit(InstKind::Ret);
+                }
                 mir.functions.push(func);
             }
         }
@@ -55,10 +75,10 @@ pub fn lower_program(program: &Program) -> MirProgram {
     mir
 }
 
-fn lower_stmt(func: &mut MirFunction, stmt: &Stmt) {
+fn lower_stmt(func: &mut MirFunction, stmt: &Stmt, locals: &HashMap<&str, Reg>) {
     match &stmt.kind {
         StmtKind::Assert { expr } => {
-            let cond = lower_expr(func, expr);
+            let cond = lower_expr(func, expr, locals);
             // Convert BaseLang SourceInfo to MIR AssertInfo
             let assert_info = AssertInfo {
                 line: stmt.info.line(),
@@ -68,10 +88,15 @@ fn lower_stmt(func: &mut MirFunction, stmt: &Stmt) {
             let span = to_source_span(&stmt.info);
             func.emit_assert_with_span(cond, assert_info, span);
         }
+        StmtKind::Return { expr } => {
+            let value = lower_expr(func, expr, locals);
+            let span = to_source_span(&stmt.info);
+            func.emit_with_span(InstKind::RetVal { value }, span);
+        }
     }
 }
 
-fn lower_expr(func: &mut MirFunction, expr: &Expr) -> Reg {
+fn lower_expr(func: &mut MirFunction, expr: &Expr, locals: &HashMap<&str, Reg>) -> Reg {
     let span = to_source_span(&expr.info);
     match &expr.kind {
         ExprKind::Int(value) => {
@@ -79,9 +104,29 @@ fn lower_expr(func: &mut MirFunction, expr: &Expr) -> Reg {
             func.emit_with_span(InstKind::LoadImm { dst, value: *value }, span);
             dst
         }
+        ExprKind::Var(name) => {
+            // Look up the variable in locals (currently only parameters)
+            if let Some(&reg) = locals.get(name) {
+                // Return the register directly - the value is already there
+                reg
+            } else {
+                // Variable not found - this should be caught by type checking
+                // For now, return a dummy register with 0
+                let dst = func.alloc_reg();
+                func.emit_with_span(InstKind::LoadImm { dst, value: 0 }, span);
+                dst
+            }
+        }
+        ExprKind::Call { name, args } => {
+            // Lower all arguments first
+            let arg_regs: Vec<Reg> = args.iter().map(|arg| lower_expr(func, arg, locals)).collect();
+            let dst = func.alloc_reg();
+            func.emit_with_span(InstKind::Call { dst, func_name: (*name).to_owned(), args: arg_regs }, span);
+            dst
+        }
         ExprKind::BinOp { op, left, right } => {
-            let left_reg = lower_expr(func, left);
-            let right_reg = lower_expr(func, right);
+            let left_reg = lower_expr(func, left, locals);
+            let right_reg = lower_expr(func, right, locals);
             let dst = func.alloc_reg();
             let mir_op = match op {
                 AstBinOp::Add => BinOp::Add,
@@ -93,8 +138,8 @@ fn lower_expr(func: &mut MirFunction, expr: &Expr) -> Reg {
             dst
         }
         ExprKind::Cmp { op, left, right } => {
-            let left_reg = lower_expr(func, left);
-            let right_reg = lower_expr(func, right);
+            let left_reg = lower_expr(func, left, locals);
+            let right_reg = lower_expr(func, right, locals);
             let dst = func.alloc_reg();
             let mir_op = match op {
                 AstCmpOp::Eq => CmpOp::Eq,
@@ -107,14 +152,14 @@ fn lower_expr(func: &mut MirFunction, expr: &Expr) -> Reg {
             func.emit_with_span(InstKind::Cmp { op: mir_op, dst, left: left_reg, right: right_reg }, span);
             dst
         }
-        ExprKind::Paren(inner) => lower_expr(func, inner),
+        ExprKind::Paren(inner) => lower_expr(func, inner, locals),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use baselang::{Decl, DeclKind, Expr, ExprKind, Program, SourceInfo, Stmt, StmtKind};
+    use baselang::{Decl, DeclKind, Expr, ExprKind, Program, SourceInfo, Stmt, StmtKind, Type, new_node_id};
     use bumpalo::Bump;
     use common::{SourceLoc, SourceModule};
     use crate::ir::FunctionKind;
@@ -130,8 +175,8 @@ mod tests {
         let arena = Bump::new();
 
         let info = make_test_info(&arena, "1 == 1");
-        let left = arena.alloc(Expr { info, kind: ExprKind::Int(1) });
-        let right = arena.alloc(Expr { info, kind: ExprKind::Int(1) });
+        let left = arena.alloc(Expr { info, kind: ExprKind::Int(1), id: new_node_id() });
+        let right = arena.alloc(Expr { info, kind: ExprKind::Int(1), id: new_node_id() });
         let cmp_expr = arena.alloc(Expr {
             info,
             kind: ExprKind::Cmp {
@@ -139,11 +184,13 @@ mod tests {
                 left,
                 right,
             },
+            id: new_node_id(),
         });
 
         let stmt = Stmt {
             info,
             kind: StmtKind::Assert { expr: cmp_expr },
+            id: new_node_id(),
         };
 
         let decl = Decl {
@@ -152,6 +199,7 @@ mod tests {
                 name: "simple",
                 body: arena.alloc_slice_copy(&[stmt]),
             },
+            id: new_node_id(),
         };
 
         let program = Program {
@@ -173,8 +221,8 @@ mod tests {
         let arena = Bump::new();
 
         let info = make_test_info(&arena, "1 == 1");
-        let left = arena.alloc(Expr { info, kind: ExprKind::Int(1) });
-        let right = arena.alloc(Expr { info, kind: ExprKind::Int(1) });
+        let left = arena.alloc(Expr { info, kind: ExprKind::Int(1), id: new_node_id() });
+        let right = arena.alloc(Expr { info, kind: ExprKind::Int(1), id: new_node_id() });
         let cmp_expr = arena.alloc(Expr {
             info,
             kind: ExprKind::Cmp {
@@ -182,11 +230,13 @@ mod tests {
                 left,
                 right,
             },
+            id: new_node_id(),
         });
 
         let stmt = Stmt {
             info,
             kind: StmtKind::Assert { expr: cmp_expr },
+            id: new_node_id(),
         };
 
         let fn_info = make_test_info(&arena, "fn main():");
@@ -194,8 +244,11 @@ mod tests {
             info: fn_info,
             kind: DeclKind::Fn {
                 name: "main",
+                params: &[],
+                return_type: Type::I64,
                 body: arena.alloc_slice_copy(&[stmt]),
             },
+            id: new_node_id(),
         };
 
         let program = Program {
@@ -214,10 +267,11 @@ mod tests {
         let arena = Bump::new();
 
         let test_info = make_test_info(&arena, "1");
-        let test_expr = arena.alloc(Expr { info: test_info, kind: ExprKind::Int(1) });
+        let test_expr = arena.alloc(Expr { info: test_info, kind: ExprKind::Int(1), id: new_node_id() });
         let test_stmt = Stmt {
             info: test_info,
             kind: StmtKind::Assert { expr: test_expr },
+            id: new_node_id(),
         };
         let test_decl = Decl {
             info: test_info,
@@ -225,20 +279,25 @@ mod tests {
                 name: "test1",
                 body: arena.alloc_slice_copy(&[test_stmt]),
             },
+            id: new_node_id(),
         };
 
         let fn_info = make_test_info(&arena, "fn main():");
-        let fn_expr = arena.alloc(Expr { info: fn_info, kind: ExprKind::Int(1) });
+        let fn_expr = arena.alloc(Expr { info: fn_info, kind: ExprKind::Int(1), id: new_node_id() });
         let fn_stmt = Stmt {
             info: fn_info,
             kind: StmtKind::Assert { expr: fn_expr },
+            id: new_node_id(),
         };
         let fn_decl = Decl {
             info: fn_info,
             kind: DeclKind::Fn {
                 name: "main",
+                params: &[],
+                return_type: Type::I64,
                 body: arena.alloc_slice_copy(&[fn_stmt]),
             },
+            id: new_node_id(),
         };
 
         let program = Program {

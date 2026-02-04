@@ -19,6 +19,9 @@ fn format_inst(inst: &Inst) -> String {
         InstKind::LoadImm { dst, value } => {
             format!("  {} = load {}", format_reg(*dst), value)
         }
+        InstKind::Copy { dst, src } => {
+            format!("  {} = copy {}", format_reg(*dst), format_reg(*src))
+        }
         InstKind::BinOp { op, dst, left, right } => {
             let op_str = match op {
                 BinOp::Add => "add",
@@ -53,6 +56,13 @@ fn format_inst(inst: &Inst) -> String {
         }
         InstKind::Assert { cond, msg_id } => {
             format!("  assert {}, #{}", format_reg(*cond), msg_id)
+        }
+        InstKind::Call { dst, func_name, args } => {
+            let args_str = args.iter().map(|r| format_reg(*r)).collect::<Vec<_>>().join(", ");
+            format!("  {} = call {}({})", format_reg(*dst), func_name, args_str)
+        }
+        InstKind::RetVal { value } => {
+            format!("  retval {}", format_reg(*value))
         }
         InstKind::Ret => "  ret".to_string(),
     }

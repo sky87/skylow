@@ -7,10 +7,12 @@
 pub mod ast;
 pub mod lower;
 mod parse;
+pub mod typecheck;
 
-pub use ast::{BinOp, CmpOp, Decl, DeclKind, Expr, ExprKind, Program, SourceInfo, Stmt, StmtKind};
+pub use ast::{BinOp, CmpOp, Decl, DeclKind, Expr, ExprKind, FnParam, NodeId, Program, SourceInfo, Stmt, StmtKind, Type, new_node_id, reset_node_ids};
 pub use lower::{lower_program, LowerError};
-pub use parse::{parse_with_prelude, ParseResult};
+pub use parse::{parse_with_prelude, parse_with_prelude_named, ParseResult};
+pub use typecheck::{typecheck_program, CheckedType, CompilationContext, FnSignature, TypeError, TypeChecker};
 
 /// The prelude syntax definitions for BaseLang.
 /// Includes integer literals, arithmetic, comparisons, and test infrastructure.

@@ -2,9 +2,9 @@
 //!
 //! Compiles MIR functions to AArch64 machine code.
 
-use codegen::{lower_instructions, lower_instructions_with_debug, ArmReg, Backend, Emitter};
+use codegen::{lower_instructions, lower_instructions_with_debug, ArmReg, Backend, CallSite, Emitter};
 use debuginfo::{DebugInfo, DebugInfoBuilder, SymbolKind};
-use mir::{FunctionKind, MirFunction};
+use mir::{FunctionKind, MirFunction, MirProgram};
 use std::collections::HashMap;
 
 /// Result of compiling a test function
@@ -17,6 +17,26 @@ pub struct CompiledTest {
     pub debug_info: Option<DebugInfo>,
 }
 
+/// A compiled function with its entry point offset and call sites
+pub struct CompiledFunction {
+    /// Name of the function
+    pub name: String,
+    /// Offset within the combined code buffer where this function starts
+    pub offset: usize,
+    /// Number of asserts in this function
+    pub num_asserts: u32,
+    /// Call sites that need to be patched (relative to function start)
+    pub call_sites: Vec<CallSite>,
+}
+
+/// Result of compiling a whole program
+pub struct CompiledProgram {
+    /// Combined machine code for all functions
+    pub code: Vec<u8>,
+    /// Compiled functions with their offsets
+    pub functions: Vec<CompiledFunction>,
+}
+
 /// JIT backend for test functions
 ///
 /// Generates code that returns 0 on success or (failed_assert_index + 1) on failure.
@@ -24,11 +44,17 @@ struct JitBackend;
 
 impl Backend for JitBackend {
     fn emit_prologue(&self, emit: &mut Emitter) {
+        // Save frame pointer and link register (needed for function calls)
+        // STP x29, x30, [sp, #-48]!
+        emit.stp_pre(ArmReg::X29, ArmReg::X30, -48);
+        // Set up frame pointer for stack unwinding
+        // MOV x29, sp
+        emit.mov_from_sp(ArmReg::X29);
         // Save callee-saved registers we use
-        // STP x19, x20, [sp, #-32]!
-        emit.stp_pre(ArmReg::X19, ArmReg::X20, -32);
-        // STP x21, x22, [sp, #-16]!
-        emit.stp_pre(ArmReg::X21, ArmReg::X22, -16);
+        // STP x19, x20, [sp, #16]
+        emit.stp_offset(ArmReg::X19, ArmReg::X20, 16);
+        // STP x21, x22, [sp, #32]
+        emit.stp_offset(ArmReg::X21, ArmReg::X22, 32);
     }
 
     fn emit_epilogue(&self, emit: &mut Emitter) {
@@ -36,8 +62,20 @@ impl Backend for JitBackend {
         emit.mov_imm16(ArmReg::X0, 0);
 
         // Restore callee-saved registers
-        emit.ldp_post(ArmReg::X21, ArmReg::X22, 16);
-        emit.ldp_post(ArmReg::X19, ArmReg::X20, 32);
+        emit.ldp_offset(ArmReg::X21, ArmReg::X22, 32);
+        emit.ldp_offset(ArmReg::X19, ArmReg::X20, 16);
+        // Restore frame pointer and link register
+        emit.ldp_post(ArmReg::X29, ArmReg::X30, 48);
+        emit.ret();
+    }
+
+    fn emit_epilogue_after_return(&self, emit: &mut Emitter) {
+        // Return value is already in X0
+        // Restore callee-saved registers
+        emit.ldp_offset(ArmReg::X21, ArmReg::X22, 32);
+        emit.ldp_offset(ArmReg::X19, ArmReg::X20, 16);
+        // Restore frame pointer and link register
+        emit.ldp_post(ArmReg::X29, ArmReg::X30, 48);
         emit.ret();
     }
 
@@ -47,8 +85,9 @@ impl Backend for JitBackend {
 
         // Failure path: return (msg_id + 1)
         emit.mov_imm16(ArmReg::X0, (msg_id + 1) as u16);
-        emit.ldp_post(ArmReg::X21, ArmReg::X22, 16);
-        emit.ldp_post(ArmReg::X19, ArmReg::X20, 32);
+        emit.ldp_offset(ArmReg::X21, ArmReg::X22, 32);
+        emit.ldp_offset(ArmReg::X19, ArmReg::X20, 16);
+        emit.ldp_post(ArmReg::X29, ArmReg::X30, 48);
         emit.ret();
 
         cbnz_pos
@@ -66,8 +105,8 @@ pub fn compile_function(func: &MirFunction) -> CompiledTest {
     // Emit prologue
     backend.emit_prologue(&mut emit);
 
-    // Lower all instructions
-    let num_asserts = lower_instructions(&mut emit, &backend, &func.instructions);
+    // Lower all instructions (including parameter setup)
+    let num_asserts = lower_instructions(&mut emit, &backend, func);
 
     CompiledTest {
         code: emit.into_code(),
@@ -113,11 +152,11 @@ pub fn compile_function_with_debug(func: &MirFunction) -> CompiledTest {
 
     let func_id = builder.begin_function(&func.name, source_id, line, col, kind);
 
-    // Lower all instructions with debug info collection
+    // Lower all instructions with debug info collection (including parameter setup)
     let result = lower_instructions_with_debug(
         &mut emit,
         &backend,
-        &func.instructions,
+        func,
         func_id,
         &mut |path, _| {
             if let Some(&id) = source_map.get(path) {
@@ -150,6 +189,73 @@ pub fn compile_function_with_debug(func: &MirFunction) -> CompiledTest {
         code: emit.into_code(),
         num_asserts: result.num_asserts,
         debug_info: Some(builder.build()),
+    }
+}
+
+/// Compile a MIR program (multiple functions) to linked AArch64 machine code.
+///
+/// All functions are compiled into a single code buffer with call sites properly
+/// linked so that functions can call each other.
+pub fn compile_program(program: &MirProgram) -> CompiledProgram {
+    let backend = JitBackend;
+    let mut emit = Emitter::new();
+    let mut compiled_functions = Vec::new();
+
+    // First pass: compile all functions and collect their offsets
+    for mir_func in &program.functions {
+        let func_offset = emit.len();
+
+        // Emit prologue
+        backend.emit_prologue(&mut emit);
+
+        // Lower all instructions (including parameter setup)
+        let result = lower_instructions_with_debug(
+            &mut emit,
+            &backend,
+            mir_func,
+            0,
+            &mut |_, _| 0,
+        );
+
+        compiled_functions.push(CompiledFunction {
+            name: mir_func.name.clone(),
+            offset: func_offset,
+            num_asserts: result.num_asserts,
+            call_sites: result.call_sites,
+        });
+    }
+
+    // Build function address map
+    let func_offsets: HashMap<&str, usize> = compiled_functions
+        .iter()
+        .map(|f| (f.name.as_str(), f.offset))
+        .collect();
+
+    // Get mutable code for patching
+    let mut code = emit.into_code();
+
+    // Second pass: patch all call sites
+    for func in &compiled_functions {
+        for call_site in &func.call_sites {
+            if let Some(&target_offset) = func_offsets.get(call_site.func_name.as_str()) {
+                // call_site.bl_pos is already the absolute position in the code buffer
+                let bl_abs_pos = call_site.bl_pos;
+                // Calculate the relative offset from BL to target (in bytes)
+                let rel_offset = target_offset as i64 - bl_abs_pos as i64;
+                // BL uses 26-bit signed offset in 4-byte units
+                let imm26 = (rel_offset >> 2) as i32;
+
+                // Patch the BL instruction: opcode (0x94) | imm26
+                let bl_inst = 0x94000000u32 | ((imm26 as u32) & 0x03FFFFFF);
+                code[bl_abs_pos..bl_abs_pos + 4].copy_from_slice(&bl_inst.to_le_bytes());
+            }
+            // If function not found, leave BL as-is (will crash, but that's a bug in the source)
+        }
+    }
+
+    CompiledProgram {
+        code,
+        functions: compiled_functions,
     }
 }
 

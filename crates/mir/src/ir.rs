@@ -79,13 +79,19 @@ impl Inst {
 pub enum InstKind {
     /// Load immediate value into register
     LoadImm { dst: Reg, value: i64 },
+    /// Copy from one register to another
+    Copy { dst: Reg, src: Reg },
     /// Binary arithmetic operation
     BinOp { op: BinOp, dst: Reg, left: Reg, right: Reg },
     /// Comparison operation (result is 0 or 1)
     Cmp { op: CmpOp, dst: Reg, left: Reg, right: Reg },
     /// Assert condition (fail if zero)
     Assert { cond: Reg, msg_id: u32 },
-    /// Return from function
+    /// Call a function by name, storing result in dst
+    Call { dst: Reg, func_name: String, args: Vec<Reg> },
+    /// Return from function with value
+    RetVal { value: Reg },
+    /// Return from function (for tests/void functions)
     Ret,
 }
 
@@ -107,10 +113,21 @@ pub struct FunctionDebugInfo {
     pub source_id: Option<String>,
 }
 
+/// Function parameter info
+#[derive(Debug, Clone, PartialEq)]
+pub struct MirParam {
+    /// Parameter name
+    pub name: String,
+    /// Register holding this parameter
+    pub reg: Reg,
+}
+
 /// A compiled MIR function (test body or function body)
 #[derive(Debug, Clone)]
 pub struct MirFunction {
     pub name: String,
+    /// Function parameters (mapped to registers)
+    pub params: Vec<MirParam>,
     pub instructions: Vec<Inst>,
     pub next_reg: u32,
     /// Assertion info indexed by msg_id (0-based)
@@ -125,6 +142,7 @@ impl MirFunction {
     pub fn new(name: String) -> Self {
         Self {
             name,
+            params: Vec::new(),
             instructions: Vec::new(),
             next_reg: 0,
             asserts: Vec::new(),
@@ -136,6 +154,7 @@ impl MirFunction {
     pub fn new_function(name: String) -> Self {
         Self {
             name,
+            params: Vec::new(),
             instructions: Vec::new(),
             next_reg: 0,
             asserts: Vec::new(),

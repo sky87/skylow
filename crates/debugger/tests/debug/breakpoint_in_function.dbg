@@ -1,0 +1,6 @@
+# Test breakpoint in helper function
+break add
+run
+# When we hit the breakpoint, show backtrace
+bt
+quit

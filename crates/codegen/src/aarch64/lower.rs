@@ -4,10 +4,19 @@
 //! that allows different implementations for JIT and ELF code generation.
 
 use debuginfo::{LineMapping, LineMappingFlags};
-use mir::{BinOp, CmpOp, Inst, InstKind};
+use mir::{BinOp, CmpOp, InstKind};
 
 use super::emit::{ArmReg, Cond, Emitter};
 use super::regalloc::SimpleRegAlloc;
+
+/// A call site that needs to be patched with the target function address
+#[derive(Debug, Clone)]
+pub struct CallSite {
+    /// Position of the BL instruction in the code
+    pub bl_pos: usize,
+    /// Name of the function being called
+    pub func_name: String,
+}
 
 /// Backend trait for customizing code generation
 ///
@@ -19,6 +28,18 @@ pub trait Backend {
 
     /// Emit function epilogue (restore registers, return)
     fn emit_epilogue(&self, emit: &mut Emitter);
+
+    /// Emit function epilogue with return value (moves value to X0 first)
+    fn emit_epilogue_with_return(&self, emit: &mut Emitter, ret_hw: ArmReg) {
+        // Default implementation: move return value to X0 if not already there
+        if ret_hw != ArmReg::X0 {
+            emit.mov_reg(ArmReg::X0, ret_hw);
+        }
+        self.emit_epilogue_after_return(emit);
+    }
+
+    /// Emit function epilogue after return value is in X0
+    fn emit_epilogue_after_return(&self, emit: &mut Emitter);
 
     /// Emit assertion failure handling code
     ///
@@ -43,6 +64,13 @@ pub fn cmp_op_to_cond(op: CmpOp) -> Cond {
 pub fn lower_load_imm(emit: &mut Emitter, regalloc: &mut SimpleRegAlloc, dst: mir::Reg, value: i64) {
     let hw_reg = regalloc.alloc(dst);
     emit.mov_imm64(hw_reg, value);
+}
+
+/// Lower a Copy instruction
+pub fn lower_copy(emit: &mut Emitter, regalloc: &mut SimpleRegAlloc, dst: mir::Reg, src: mir::Reg) {
+    let src_hw = regalloc.get(src);
+    let dst_hw = regalloc.alloc(dst);
+    emit.mov_reg(dst_hw, src_hw);
 }
 
 /// Lower a BinOp instruction
@@ -90,6 +118,8 @@ pub struct LowerResult {
     pub num_asserts: u32,
     /// Line mappings for debug info
     pub line_mappings: Vec<LineMapping>,
+    /// Call sites that need to be patched with function addresses
+    pub call_sites: Vec<CallSite>,
 }
 
 /// Lower MIR instructions to AArch64 machine code
@@ -98,9 +128,9 @@ pub struct LowerResult {
 pub fn lower_instructions<B: Backend>(
     emit: &mut Emitter,
     backend: &B,
-    instructions: &[Inst],
+    func: &mir::MirFunction,
 ) -> u32 {
-    lower_instructions_with_debug(emit, backend, instructions, 0, &mut |_, _| 0).num_asserts
+    lower_instructions_with_debug(emit, backend, func, 0, &mut |_, _| 0).num_asserts
 }
 
 /// Lower MIR instructions to AArch64 machine code with debug info collection
@@ -113,7 +143,7 @@ pub fn lower_instructions<B: Backend>(
 pub fn lower_instructions_with_debug<B, F>(
     emit: &mut Emitter,
     backend: &B,
-    instructions: &[Inst],
+    func: &mir::MirFunction,
     func_id: u32,
     source_resolver: &mut F,
 ) -> LowerResult
@@ -124,7 +154,32 @@ where
     let mut regalloc = SimpleRegAlloc::new();
     let mut result = LowerResult::default();
 
-    for inst in instructions {
+    // Pre-allocate registers for function parameters and copy from X0-X7
+    for (i, param) in func.params.iter().enumerate() {
+        if i >= 8 {
+            // TODO: Handle more than 8 parameters via stack
+            break;
+        }
+        // Allocate a hardware register for this parameter
+        let hw_reg = regalloc.alloc(param.reg);
+        // Copy from calling convention register (X0-X7) to callee-saved register
+        let arg_reg = match i {
+            0 => ArmReg::X0,
+            1 => ArmReg::X1,
+            2 => ArmReg::X2,
+            3 => ArmReg::X3,
+            4 => ArmReg::X4,
+            5 => ArmReg::X5,
+            6 => ArmReg::X6,
+            7 => ArmReg::X7,
+            _ => unreachable!(),
+        };
+        if hw_reg != arg_reg {
+            emit.mov_reg(hw_reg, arg_reg);
+        }
+    }
+
+    for inst in &func.instructions {
         // Record code offset before emitting instruction
         let code_offset = emit.len() as u32;
 
@@ -163,6 +218,50 @@ where
                 emit.patch_branch(branch_pos, emit.len());
                 result.num_asserts += 1;
             }
+            InstKind::Copy { dst, src } => {
+                lower_copy(emit, &mut regalloc, *dst, *src);
+            }
+            InstKind::Call { dst, func_name, args } => {
+                // Move arguments to AArch64 calling convention registers (X0-X7)
+                for (i, &arg_reg) in args.iter().enumerate() {
+                    if i >= 8 {
+                        // TODO: Handle more than 8 arguments via stack
+                        break;
+                    }
+                    let arg_hw = regalloc.get(arg_reg);
+                    let target_reg = match i {
+                        0 => ArmReg::X0,
+                        1 => ArmReg::X1,
+                        2 => ArmReg::X2,
+                        3 => ArmReg::X3,
+                        4 => ArmReg::X4,
+                        5 => ArmReg::X5,
+                        6 => ArmReg::X6,
+                        7 => ArmReg::X7,
+                        _ => unreachable!(),
+                    };
+                    if arg_hw != target_reg {
+                        emit.mov_reg(target_reg, arg_hw);
+                    }
+                }
+
+                // Emit BL instruction (will be patched later)
+                let bl_pos = emit.bl(0);
+                result.call_sites.push(CallSite {
+                    bl_pos,
+                    func_name: func_name.clone(),
+                });
+
+                // Move result from X0 to destination register
+                let dst_hw = regalloc.alloc(*dst);
+                if dst_hw != ArmReg::X0 {
+                    emit.mov_reg(dst_hw, ArmReg::X0);
+                }
+            }
+            InstKind::RetVal { value } => {
+                let ret_hw = regalloc.get(*value);
+                backend.emit_epilogue_with_return(emit, ret_hw);
+            }
             InstKind::Ret => {
                 backend.emit_epilogue(emit);
             }
@@ -188,6 +287,11 @@ mod tests {
 
         fn emit_epilogue(&self, emit: &mut Emitter) {
             emit.mov_imm16(ArmReg::X0, 0);
+            emit.ldp_post(ArmReg::X19, ArmReg::X20, 16);
+            emit.ret();
+        }
+
+        fn emit_epilogue_after_return(&self, emit: &mut Emitter) {
             emit.ldp_post(ArmReg::X19, ArmReg::X20, 16);
             emit.ret();
         }
@@ -255,7 +359,7 @@ mod tests {
         let backend = TestBackend;
         let mut emit = Emitter::new();
         backend.emit_prologue(&mut emit);
-        let num_asserts = lower_instructions(&mut emit, &backend, &func.instructions);
+        let num_asserts = lower_instructions(&mut emit, &backend, &func);
 
         assert_eq!(num_asserts, 1);
         assert!(emit.len() > 0);
@@ -278,7 +382,7 @@ mod tests {
         let backend = TestBackend;
         let mut emit = Emitter::new();
         backend.emit_prologue(&mut emit);
-        let num_asserts = lower_instructions(&mut emit, &backend, &func.instructions);
+        let num_asserts = lower_instructions(&mut emit, &backend, &func);
 
         assert_eq!(num_asserts, 2);
     }
@@ -336,7 +440,7 @@ mod tests {
         let result = lower_instructions_with_debug(
             &mut emit,
             &backend,
-            &func.instructions,
+            &func,
             0,
             &mut |path, _| {
                 let next_id = source_id_map.len() as u32;
@@ -389,7 +493,7 @@ mod tests {
         let result = lower_instructions_with_debug(
             &mut emit,
             &backend,
-            &func.instructions,
+            &func,
             0,
             &mut |_, _| 0,
         );

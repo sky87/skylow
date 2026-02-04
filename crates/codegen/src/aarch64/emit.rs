@@ -118,6 +118,18 @@ impl Emitter {
         self.emit32(inst);
     }
 
+    /// MOV Xd, SP (ADD Xd, SP, #0)
+    ///
+    /// Used to set up the frame pointer: mov x29, sp
+    pub fn mov_from_sp(&mut self, rd: ArmReg) {
+        // ADD Xd, SP, #0
+        // SP is encoded as register 31 in the Rn field for ADD immediate
+        // 1 00 100010 0 imm12 Rn Rd
+        // With Rn=31 (SP) and imm12=0
+        let inst = 0x910003e0 | (rd as u32);
+        self.emit32(inst);
+    }
+
     /// ADD Xd, Xn, Xm
     pub fn add_reg(&mut self, rd: ArmReg, rn: ArmReg, rm: ArmReg) {
         // ADD Xd, Xn, Xm
@@ -338,6 +350,24 @@ impl Emitter {
         let inst = 0xa8c00000 | (imm7 << 15) | ((rt2 as u32) << 10) | (31 << 5) | (rt1 as u32);
         self.emit32(inst);
     }
+
+    /// STP Xt1, Xt2, [SP, #imm] (signed offset store pair)
+    pub fn stp_offset(&mut self, rt1: ArmReg, rt2: ArmReg, imm: i16) {
+        // STP Xt1, Xt2, [SP, #imm]
+        // 1 0 101 0 010 0 imm7 Rt2 11111 Rt1
+        let imm7 = ((imm / 8) as u32) & 0x7f;
+        let inst = 0xa9000000 | (imm7 << 15) | ((rt2 as u32) << 10) | (31 << 5) | (rt1 as u32);
+        self.emit32(inst);
+    }
+
+    /// LDP Xt1, Xt2, [SP, #imm] (signed offset load pair)
+    pub fn ldp_offset(&mut self, rt1: ArmReg, rt2: ArmReg, imm: i16) {
+        // LDP Xt1, Xt2, [SP, #imm]
+        // 1 0 101 0 010 1 imm7 Rt2 11111 Rt1
+        let imm7 = ((imm / 8) as u32) & 0x7f;
+        let inst = 0xa9400000 | (imm7 << 15) | ((rt2 as u32) << 10) | (31 << 5) | (rt1 as u32);
+        self.emit32(inst);
+    }
 }
 
 impl Default for Emitter {
@@ -499,5 +529,28 @@ mod tests {
         emit.emit_bytes(&[1, 2, 3]);
         emit.align(8);
         assert_eq!(emit.len(), 8);
+    }
+
+    #[test]
+    fn test_stp_offset() {
+        let mut emit = Emitter::new();
+        emit.stp_offset(ArmReg::X19, ArmReg::X20, 16);
+        assert_eq!(emit.len(), 4);
+        // STP X19, X20, [SP, #16]
+        // Check the instruction encoding
+        let inst = u32::from_le_bytes([emit.code[0], emit.code[1], emit.code[2], emit.code[3]]);
+        // Should have imm7 = 2 (16/8) in bits 15-21
+        assert_eq!((inst >> 15) & 0x7f, 2);
+    }
+
+    #[test]
+    fn test_ldp_offset() {
+        let mut emit = Emitter::new();
+        emit.ldp_offset(ArmReg::X19, ArmReg::X20, 16);
+        assert_eq!(emit.len(), 4);
+        // LDP X19, X20, [SP, #16]
+        let inst = u32::from_le_bytes([emit.code[0], emit.code[1], emit.code[2], emit.code[3]]);
+        // Should have imm7 = 2 (16/8) in bits 15-21
+        assert_eq!((inst >> 15) & 0x7f, 2);
     }
 }

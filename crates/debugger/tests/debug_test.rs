@@ -5,11 +5,11 @@
 //! - A `.dbg` debugger script with the same name
 //! - A `.dbg.expected` file with expected output
 
-use baselang::{lower_program as lower_to_ast, parse_with_prelude};
+use baselang::{lower_program as lower_to_ast, parse_with_prelude_named};
 use bumpalo::Bump;
 use datatest_stable::harness;
 use debugger::Session;
-use elf::generate_elf_with_debug;
+use elf::generate_elf_from_program_with_debug;
 use mir::lower_program as lower_to_mir;
 use std::fs::{self, File};
 use std::io::Write;
@@ -32,7 +32,8 @@ fn run_test(path: &Path) -> datatest_stable::Result<()> {
 
     // Compile source to MIR
     let arena = Bump::new();
-    let parse_result = parse_with_prelude(&arena, &source);
+    let filename = path.file_name().unwrap().to_str().unwrap();
+    let parse_result = parse_with_prelude_named(&arena, &source, filename);
 
     if !parse_result.errors.is_empty() {
         let errors: Vec<_> = parse_result
@@ -48,15 +49,13 @@ fn run_test(path: &Path) -> datatest_stable::Result<()> {
 
     let mir = lower_to_mir(&ast);
 
-    // Get the first function (usually main or a test)
-    let func = mir
-        .functions
-        .first()
-        .ok_or("No functions in program")?;
+    // Verify we have at least one function
+    if mir.functions.is_empty() {
+        return Err("No functions in program".into());
+    }
 
-    // Generate ELF with debug info
-    let filename = path.file_name().unwrap().to_str().unwrap();
-    let result = generate_elf_with_debug(func, filename);
+    // Generate ELF with debug info for the whole program
+    let result = generate_elf_from_program_with_debug(&mir, filename);
 
     // Write to temp files
     let temp_dir = std::env::temp_dir().join("skydbg_test");
