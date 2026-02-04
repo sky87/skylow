@@ -112,6 +112,8 @@ impl Inspector {
             line: loc.as_ref().map(|l| l.line),
             col: loc.as_ref().map(|l| l.col),
             code_offset: offset,
+            frame_pointer: None,
+            return_address: None,
         })
     }
 
@@ -324,6 +326,8 @@ mod tests {
             line: Some(10),
             col: Some(1),
             code_offset: 0,
+            frame_pointer: None,
+            return_address: None,
         });
 
         let stack = Inspector::call_stack(&debugger);

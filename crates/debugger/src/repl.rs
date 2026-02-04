@@ -290,18 +290,42 @@ impl Session {
             return Err("Program is not running".to_string());
         }
 
-        let regs = self.target.get_registers().map_err(|e| e.to_string())?;
-        let pc = regs.pc;
+        // Unwind the stack to get all frames
+        let frames = self.target.unwind_stack(50).map_err(|e| e.to_string())?;
 
-        // Get source location if available
-        let offset = (pc - self.code_base) as u32;
-        if let Some(loc) = SourceMapper::offset_to_source(&self.debugger, offset) {
-            self.println(format!("#0  {} at {}:{}:{}", loc.function.unwrap_or_default(), loc.file, loc.line, loc.col));
-        } else {
-            self.println(format!("#0  0x{:x}", pc));
+        for (index, (fp, addr)) in frames.iter().enumerate() {
+            // For frame 0, addr is the current PC
+            // For other frames, addr is the return address (points to instruction after call)
+            // Subtract 4 to point to the call instruction for better source mapping
+            let lookup_addr = if index == 0 { *addr } else { addr.saturating_sub(4) };
+
+            // Convert to code offset
+            let offset = lookup_addr.saturating_sub(self.code_base) as u32;
+
+            // Get source location if available
+            if let Some(loc) = SourceMapper::offset_to_source(&self.debugger, offset) {
+                let func_name = loc.function.as_deref().unwrap_or("??");
+                self.println(format!(
+                    "#{:<2} 0x{:016x} in {} at {}:{}:{}",
+                    index, addr, func_name, loc.file, loc.line, loc.col
+                ));
+            } else {
+                // No debug info, just show address
+                let func_name = SourceMapper::function_at_offset(&self.debugger, offset)
+                    .unwrap_or_else(|| "??".to_string());
+                if func_name == "??" {
+                    self.println(format!("#{:<2} 0x{:016x}", index, addr));
+                } else {
+                    self.println(format!("#{:<2} 0x{:016x} in {}", index, addr, func_name));
+                }
+            }
+
+            // Stop if we've hit a null frame pointer (bottom of stack)
+            if *fp == 0 {
+                break;
+            }
         }
 
-        // TODO: Walk stack frames using frame pointer
         Ok(false)
     }
 

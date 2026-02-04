@@ -173,6 +173,10 @@ pub struct StackFrame {
     pub col: Option<u32>,
     /// Code offset within the function
     pub code_offset: u32,
+    /// Frame pointer (X29 on AArch64)
+    pub frame_pointer: Option<u64>,
+    /// Return address (X30/LR on AArch64)
+    pub return_address: Option<u64>,
 }
 
 /// Main debugger instance
@@ -507,6 +511,8 @@ mod tests {
             line: Some(10),
             col: Some(1),
             code_offset: 0,
+            frame_pointer: Some(0x7fff0000),
+            return_address: Some(0x400100),
         };
         dbg.push_frame(frame);
         assert_eq!(dbg.call_stack().len(), 1);
@@ -519,6 +525,8 @@ mod tests {
             line: None,
             col: None,
             code_offset: 100,
+            frame_pointer: None,
+            return_address: None,
         };
         dbg.push_frame(frame2);
         assert_eq!(dbg.call_stack().len(), 2);
@@ -560,6 +568,8 @@ mod tests {
             line: None,
             col: None,
             code_offset: 0,
+            frame_pointer: None,
+            return_address: None,
         });
 
         let bp = Breakpoint::at_address(BreakpointId(0), 0x50);
@@ -618,6 +628,8 @@ mod tests {
             line: Some(42),
             col: Some(10),
             code_offset: 0x200,
+            frame_pointer: Some(0x7fff1000),
+            return_address: Some(0x400200),
         };
 
         assert_eq!(frame.index, 0);
@@ -626,5 +638,7 @@ mod tests {
         assert_eq!(frame.line, Some(42));
         assert_eq!(frame.col, Some(10));
         assert_eq!(frame.code_offset, 0x200);
+        assert_eq!(frame.frame_pointer, Some(0x7fff1000));
+        assert_eq!(frame.return_address, Some(0x400200));
     }
 }

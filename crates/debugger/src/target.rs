@@ -357,6 +357,82 @@ impl Target {
         }
         Ok(())
     }
+
+    /// Unwind the stack and return a list of (frame_pointer, return_address) pairs.
+    ///
+    /// On AArch64, the frame chain is:
+    /// - X29 (FP) points to the current frame
+    /// - [FP] contains the previous FP (saved by callee)
+    /// - [FP+8] contains the return address (saved LR)
+    ///
+    /// Returns frames from innermost (current) to outermost (main/entry).
+    /// The first entry is (current_fp, current_pc), subsequent entries are
+    /// (saved_fp, return_address).
+    pub fn unwind_stack(&self, max_frames: usize) -> io::Result<Vec<(u64, u64)>> {
+        let regs = self.get_registers()?;
+        let mut frames = Vec::new();
+
+        // First frame: current PC and FP
+        frames.push((regs.x[29], regs.pc));
+
+        // Walk the frame pointer chain
+        let mut fp = regs.x[29]; // X29 is the frame pointer on AArch64
+
+        for _ in 1..max_frames {
+            // Stop if FP is null or invalid
+            if fp == 0 || fp < 0x1000 {
+                break;
+            }
+
+            // Read saved FP and return address from the stack
+            // On AArch64: [FP] = saved FP, [FP+8] = saved LR (return address)
+            let frame_data = match self.read_memory(fp, 16) {
+                Ok(data) => data,
+                Err(_) => break, // Stop on memory read errors
+            };
+
+            if frame_data.len() < 16 {
+                break;
+            }
+
+            let saved_fp = u64::from_le_bytes([
+                frame_data[0],
+                frame_data[1],
+                frame_data[2],
+                frame_data[3],
+                frame_data[4],
+                frame_data[5],
+                frame_data[6],
+                frame_data[7],
+            ]);
+            let return_addr = u64::from_le_bytes([
+                frame_data[8],
+                frame_data[9],
+                frame_data[10],
+                frame_data[11],
+                frame_data[12],
+                frame_data[13],
+                frame_data[14],
+                frame_data[15],
+            ]);
+
+            // Stop if return address is null (reached the bottom of the stack)
+            if return_addr == 0 {
+                break;
+            }
+
+            frames.push((saved_fp, return_addr));
+
+            // Move to the previous frame
+            // Stop if we're not making progress (stuck in a loop)
+            if saved_fp == 0 || saved_fp == fp {
+                break;
+            }
+            fp = saved_fp;
+        }
+
+        Ok(frames)
+    }
 }
 
 impl Drop for Target {
@@ -378,11 +454,48 @@ mod tests {
     }
 
     #[test]
+    fn test_stop_reason_debug() {
+        // Test Debug trait for StopReason variants
+        let _ = format!("{:?}", StopReason::Breakpoint(0x1000));
+        let _ = format!("{:?}", StopReason::Step);
+        let _ = format!("{:?}", StopReason::Exited(0));
+        let _ = format!("{:?}", StopReason::Signaled(9));
+        let _ = format!("{:?}", StopReason::Signal(11));
+    }
+
+    #[test]
+    fn test_stop_reason_clone() {
+        let reason = StopReason::Breakpoint(0x2000);
+        let cloned = reason.clone();
+        assert_eq!(reason, cloned);
+    }
+
+    #[test]
     fn test_registers_default() {
         let regs = Registers::default();
         assert_eq!(regs.pc, 0);
         assert_eq!(regs.sp, 0);
         assert_eq!(regs.x[0], 0);
+        assert_eq!(regs.pstate, 0);
+    }
+
+    #[test]
+    fn test_registers_clone() {
+        let mut regs = Registers::default();
+        regs.pc = 0x400000;
+        regs.x[0] = 42;
+        regs.x[29] = 0x7fff0000;
+
+        let cloned = regs.clone();
+        assert_eq!(cloned.pc, 0x400000);
+        assert_eq!(cloned.x[0], 42);
+        assert_eq!(cloned.x[29], 0x7fff0000);
+    }
+
+    #[test]
+    fn test_registers_debug() {
+        let regs = Registers::default();
+        let _ = format!("{:?}", regs);
     }
 
     #[test]
@@ -390,5 +503,20 @@ mod tests {
         let target = Target::new("/bin/true", vec![]);
         assert_eq!(target.pid(), 0);
         assert!(!target.is_running());
+    }
+
+    #[test]
+    fn test_target_new_with_args() {
+        let target = Target::new("/bin/echo", vec!["hello".to_string(), "world".to_string()]);
+        assert_eq!(target.pid(), 0);
+        assert!(!target.is_running());
+    }
+
+    #[test]
+    fn test_target_new_path_buf() {
+        use std::path::PathBuf;
+        let path = PathBuf::from("/usr/bin/test");
+        let target = Target::new(&path, vec![]);
+        assert_eq!(target.pid(), 0);
     }
 }
