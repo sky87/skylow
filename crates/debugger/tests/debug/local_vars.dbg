@@ -1,8 +1,17 @@
-# Test local variable inspection
+# Test local variable inspection with stepping
 break compute
 run
-# Print specific local variable
+# Step from breakpoint through prologue to first body line (let x = a + b)
+step
+# Params should be available
 print a
-# Print all locals (parameters and let bindings)
+print b
+# Step to next line (let y = x * 2)
+step
+print x
+# Step to next line (return y)
+step
+print y
+# All locals after computation
 info locals
 quit

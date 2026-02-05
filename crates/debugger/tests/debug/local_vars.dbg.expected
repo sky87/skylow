@@ -1,8 +1,14 @@
 Breakpoint 1 at 0x400078
 Starting program: /tmp/skydbg_test/local_vars.skyl.elf
-0x400078
-a = 3 (0x3)
+Breakpoint 1 hit at 0x400078
+local_vars.skyl:2
 a = 3 (0x3)
 b = 4 (0x4)
-x = 0 (0x0)
-y = 0 (0x0)
+local_vars.skyl:3
+x = 7 (0x7)
+local_vars.skyl:4
+y = 14 (0xe)
+a = 14 (0xe)
+b = 4 (0x4)
+x = 7 (0x7)
+y = 14 (0xe)

@@ -237,7 +237,6 @@ pub fn compile_binary_with_debug(func: &MirFunction, filename: &str) -> Compiled
     // Emit prologue
     let prologue_start = emitter.len();
     backend.emit_prologue(&mut emitter);
-    let prologue_end = emitter.len();
 
     // Add source file
     let source_id = if let Some(ref src_id) = func.debug_info.source_id {
@@ -279,10 +278,12 @@ pub fn compile_binary_with_debug(func: &MirFunction, filename: &str) -> Compiled
     );
 
     // Add line mappings to builder
+    // Note: code_offset from lower_instructions_with_debug is already absolute
+    // within the emitter buffer (includes prologue + param copies), so no adjustment needed.
     for mapping in &result.line_mappings {
         builder.add_line_mapping(
             mapping.func_id,
-            mapping.code_offset + prologue_end as u32,
+            mapping.code_offset,
             mapping.source_id,
             mapping.line,
             mapping.col,
@@ -525,7 +526,6 @@ pub fn compile_program_binary_with_debug(program: &MirProgram, filename: &str) -
         let prologue_start = emit.len();
         let result = if is_entry {
             main_backend.emit_prologue(&mut emit);
-            let prologue_end = emit.len();
             let res = lower_instructions_with_debug(
                 &mut emit,
                 &main_backend,
@@ -541,11 +541,11 @@ pub fn compile_program_binary_with_debug(program: &MirProgram, filename: &str) -
                     }
                 },
             );
-            // Add line mappings
+            // Add line mappings (code_offset is already absolute in the emitter buffer)
             for mapping in &res.line_mappings {
                 builder.add_line_mapping(
                     mapping.func_id,
-                    mapping.code_offset + prologue_end as u32,
+                    mapping.code_offset,
                     mapping.source_id,
                     mapping.line,
                     mapping.col,
@@ -555,7 +555,6 @@ pub fn compile_program_binary_with_debug(program: &MirProgram, filename: &str) -
             res
         } else {
             func_backend.emit_prologue(&mut emit);
-            let prologue_end = emit.len();
             let res = lower_instructions_with_debug(
                 &mut emit,
                 &func_backend,
@@ -571,11 +570,11 @@ pub fn compile_program_binary_with_debug(program: &MirProgram, filename: &str) -
                     }
                 },
             );
-            // Add line mappings
+            // Add line mappings (code_offset is already absolute in the emitter buffer)
             for mapping in &res.line_mappings {
                 builder.add_line_mapping(
                     mapping.func_id,
-                    mapping.code_offset + prologue_end as u32,
+                    mapping.code_offset,
                     mapping.source_id,
                     mapping.line,
                     mapping.col,
@@ -588,17 +587,22 @@ pub fn compile_program_binary_with_debug(program: &MirProgram, filename: &str) -
         // Align to 8 bytes for next function
         emit.align(8);
 
-        let code_size = emit.len() as u32;
+        let code_size = (emit.len() - prologue_start) as u32;
         builder.set_function_code_range(dbg_func_id, prologue_start as u32, code_size);
 
-        // Add local variable debug info
-        // Parameters are treated as locals for debugging (they live in registers too)
+        // Add local variable debug info using hardware register numbers
+        let reg_map = &result.reg_map;
         for param in &mir_func.params {
-            builder.add_local(dbg_func_id, &param.name, param.reg.0, 0, code_size);
+            let hw_reg = reg_map.get(param.reg.0 as usize)
+                .and_then(|r| *r)
+                .unwrap_or(param.reg.0 as u8);
+            builder.add_local(dbg_func_id, &param.name, hw_reg as u32, 0, code_size);
         }
-        // Add actual local variables
         for local in &mir_func.locals {
-            builder.add_local(dbg_func_id, &local.name, local.reg.0, 0, code_size);
+            let hw_reg = reg_map.get(local.reg.0 as usize)
+                .and_then(|r| *r)
+                .unwrap_or(local.reg.0 as u8);
+            builder.add_local(dbg_func_id, &local.name, hw_reg as u32, 0, code_size);
         }
 
         builder.end_function();

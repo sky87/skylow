@@ -1,5 +1,5 @@
 Breakpoint 1 at 0x400078
 Starting program: /tmp/skydbg_test/nested_backtrace.skyl.elf
-0x400078
-#0  0x0000000000400078 in square
-#1  0x0000000000400114 in sum_of_squares at nested_backtrace.skyl:5:22
+Breakpoint 1 hit at 0x400078
+#0  0x0000000000400078 in square at nested_backtrace.skyl:1:1
+#1  0x0000000000400114 in main at nested_backtrace.skyl:8:10

@@ -38,6 +38,11 @@ impl SimpleRegAlloc {
     pub fn get(&self, reg: Reg) -> ArmReg {
         self.mapping[reg.0 as usize].expect("register not allocated")
     }
+
+    /// Export the virtual-to-hardware register mapping as hardware register numbers
+    pub fn export_mapping(&self) -> Vec<Option<u8>> {
+        self.mapping.iter().map(|opt| opt.map(|r| r as u8)).collect()
+    }
 }
 
 impl Default for SimpleRegAlloc {

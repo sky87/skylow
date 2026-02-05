@@ -120,6 +120,8 @@ pub struct LowerResult {
     pub line_mappings: Vec<LineMapping>,
     /// Call sites that need to be patched with function addresses
     pub call_sites: Vec<CallSite>,
+    /// Virtual register to hardware register mapping (virtual reg index -> hw reg number)
+    pub reg_map: Vec<Option<u8>>,
 }
 
 /// Lower MIR instructions to AArch64 machine code
@@ -267,6 +269,9 @@ where
             }
         }
     }
+
+    // Export register mapping for debug info
+    result.reg_map = regalloc.export_mapping();
 
     result
 }

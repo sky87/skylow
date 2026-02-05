@@ -1,4 +1,4 @@
 Breakpoint 1 at 0x400078
 Starting program: /tmp/skydbg_test/breakpoint_in_function.skyl.elf
-0x400078
-#0  0x0000000000400078 in add
+Breakpoint 1 hit at 0x400078
+#0  0x0000000000400078 in add at breakpoint_in_function.skyl:1:1

@@ -128,10 +128,9 @@ impl Target {
             if sig == libc::SIGTRAP {
                 // Could be breakpoint or step
                 let regs = self.get_registers()?;
-                // Check if we're at a breakpoint (PC - 4 for BRK)
-                let bp_addr = regs.pc.wrapping_sub(4);
-                if self.breakpoint_instructions.contains_key(&bp_addr) {
-                    Ok(StopReason::Breakpoint(bp_addr))
+                // On AArch64, BRK sets PC to the BRK instruction address
+                if self.breakpoint_instructions.contains_key(&regs.pc) {
+                    Ok(StopReason::Breakpoint(regs.pc))
                 } else {
                     Ok(StopReason::Step)
                 }
@@ -335,6 +334,34 @@ impl Target {
             }
         } else {
             self.cont()
+        }
+    }
+
+    /// Step past a breakpoint: restore original instruction, step, re-install breakpoint
+    pub fn step_past_breakpoint(&mut self, bp_addr: u64) -> io::Result<StopReason> {
+        if let Some(orig_inst) = self.breakpoint_instructions.remove(&bp_addr) {
+            // Restore original instruction in memory
+            self.write_memory(bp_addr, &orig_inst.to_le_bytes())?;
+
+            // Set PC back to the breakpoint address
+            let mut regs = self.get_registers()?;
+            regs.pc = bp_addr;
+            self.set_registers(&regs)?;
+
+            // Single step (executes the original instruction)
+            // Note: breakpoint_instructions entry is removed so wait() won't
+            // misidentify the step as a breakpoint hit
+            let result = self.step()?;
+
+            // Re-insert breakpoint into tracking map and memory
+            self.breakpoint_instructions.insert(bp_addr, orig_inst);
+            let brk_inst: u32 = 0xD4200000;
+            self.write_memory(bp_addr, &brk_inst.to_le_bytes())?;
+
+            Ok(result)
+        } else {
+            // No breakpoint here, just step normally
+            self.step()
         }
     }
 

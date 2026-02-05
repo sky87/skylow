@@ -110,6 +110,20 @@ impl SourceMapper {
         Self::find_function_at_offset(debug_info, offset).map(|s| s.name.clone())
     }
 
+    /// Get the function's declaration location at a given offset.
+    /// Returns a SourceLocation using the function's declared source position.
+    pub fn function_decl_location(debugger: &Debugger, offset: u32) -> Option<SourceLocation> {
+        let debug_info = debugger.debug_info()?;
+        let sym = Self::find_function_at_offset(debug_info, offset)?;
+        let source_file = debug_info.sources.iter().find(|s| s.id == sym.source_id)?;
+        Some(SourceLocation {
+            file: source_file.path.clone(),
+            line: sym.line,
+            col: sym.col,
+            function: Some(sym.name.clone()),
+        })
+    }
+
     /// Get all functions in the debug info
     pub fn all_functions(debugger: &Debugger) -> Vec<String> {
         match debugger.debug_info() {
@@ -426,5 +440,30 @@ mod tests {
         let offsets = SourceMapper::source_to_offsets(&debugger, "skyl", 2);
         // Matches main.skyl line 2
         assert!(offsets.contains(&16));
+    }
+
+    #[test]
+    fn test_function_decl_location() {
+        let mut debugger = Debugger::new();
+        debugger.load_debug_info(make_debug_info());
+
+        let loc = SourceMapper::function_decl_location(&debugger, 50).unwrap();
+        assert_eq!(loc.file, "main.skyl");
+        assert_eq!(loc.line, 1);
+        assert_eq!(loc.col, 1);
+        assert_eq!(loc.function, Some("main".to_string()));
+
+        let loc = SourceMapper::function_decl_location(&debugger, 120).unwrap();
+        assert_eq!(loc.file, "helper.skyl");
+        assert_eq!(loc.function, Some("helper".to_string()));
+
+        // Outside any function
+        assert!(SourceMapper::function_decl_location(&debugger, 200).is_none());
+    }
+
+    #[test]
+    fn test_function_decl_location_no_debug_info() {
+        let debugger = Debugger::new();
+        assert!(SourceMapper::function_decl_location(&debugger, 0).is_none());
     }
 }

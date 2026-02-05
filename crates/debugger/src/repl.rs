@@ -224,10 +224,9 @@ impl Session {
         let regs = self.target.get_registers().map_err(|e| e.to_string())?;
         let pc = regs.pc;
 
-        // Check if PC-4 is a breakpoint (we stopped after BRK)
-        let bp_addr = pc.wrapping_sub(4);
-        let reason = if self.breakpoint_addrs.values().any(|&a| a == bp_addr) {
-            self.target.continue_past_breakpoint(bp_addr).map_err(|e| e.to_string())?
+        // On AArch64, BRK sets PC to the BRK instruction address
+        let reason = if self.breakpoint_addrs.values().any(|&a| a == pc) {
+            self.target.continue_past_breakpoint(pc).map_err(|e| e.to_string())?
         } else {
             self.target.cont().map_err(|e| e.to_string())?
         };
@@ -240,8 +239,51 @@ impl Session {
             return Err("Program is not running".to_string());
         }
 
-        // Step one instruction for now (source-level stepping would need line info)
-        let reason = self.target.step().map_err(|e| e.to_string())?;
+        // Get current source line so we can step until it changes
+        let regs = self.target.get_registers().map_err(|e| e.to_string())?;
+        let start_pc = regs.pc;
+        let start_offset = (start_pc - self.code_base) as u32;
+        let start_loc = SourceMapper::offset_to_source(&self.debugger, start_offset);
+        let start_line = start_loc.as_ref().map(|l| (l.file.clone(), l.line));
+
+        // First step: handle breakpoint if needed
+        let pc = start_pc;
+        let mut reason = if self.breakpoint_addrs.values().any(|&a| a == pc) {
+            self.target.step_past_breakpoint(pc).map_err(|e| e.to_string())?
+        } else {
+            self.target.step().map_err(|e| e.to_string())?
+        };
+
+        // Keep stepping until we reach a different source line.
+        // If we started with no source mapping (e.g. in prologue), step until
+        // we reach ANY mapped source line.
+        loop {
+            match &reason {
+                StopReason::Step => {
+                    let regs = self.target.get_registers().map_err(|e| e.to_string())?;
+                    let offset = (regs.pc - self.code_base) as u32;
+                    if let Some(loc) = SourceMapper::offset_to_source(&self.debugger, offset) {
+                        match &start_line {
+                            Some((start_file, start_line_num)) => {
+                                if loc.file != *start_file || loc.line != *start_line_num {
+                                    break; // Reached a different source line
+                                }
+                            }
+                            None => break, // Had no mapping, now we have one — stop
+                        }
+                    }
+                    // Same line or still no mapping — step again
+                    let pc = regs.pc;
+                    reason = if self.breakpoint_addrs.values().any(|&a| a == pc) {
+                        self.target.step_past_breakpoint(pc).map_err(|e| e.to_string())?
+                    } else {
+                        self.target.step().map_err(|e| e.to_string())?
+                    };
+                }
+                _ => break, // Breakpoint, exit, signal — stop
+            }
+        }
+
         self.handle_stop(reason)
     }
 
@@ -344,15 +386,16 @@ impl Session {
                     "#{:<2} 0x{:016x} in {} at {}:{}:{}",
                     index, addr, func_name, loc.file, loc.line, loc.col
                 ));
+            } else if let Some(loc) = SourceMapper::function_decl_location(&self.debugger, offset) {
+                // No line mapping, but we know which function — use its declaration location
+                let func_name = loc.function.as_deref().unwrap_or("??");
+                self.println(format!(
+                    "#{:<2} 0x{:016x} in {} at {}:{}:{}",
+                    index, addr, func_name, loc.file, loc.line, loc.col
+                ));
             } else {
-                // No debug info, just show address
-                let func_name = SourceMapper::function_at_offset(&self.debugger, offset)
-                    .unwrap_or_else(|| "??".to_string());
-                if func_name == "??" {
-                    self.println(format!("#{:<2} 0x{:016x}", index, addr));
-                } else {
-                    self.println(format!("#{:<2} 0x{:016x} in {}", index, addr, func_name));
-                }
+                // No debug info at all
+                self.println(format!("#{:<2} 0x{:016x}", index, addr));
             }
 
             // Stop if we've hit a null frame pointer (bottom of stack)
@@ -631,9 +674,11 @@ impl Session {
                 let regs = self.target.get_registers().map_err(|e| e.to_string())?;
                 let offset = (regs.pc - self.code_base) as u32;
                 if let Some(loc) = SourceMapper::offset_to_source(&self.debugger, offset) {
-                    self.println(format!("{}:{}: {}", loc.file, loc.line,
-                        SourceMapper::get_source_line(&self.debugger, &loc.file, loc.line)
-                            .unwrap_or_default()));
+                    if let Some(src) = SourceMapper::get_source_line(&self.debugger, &loc.file, loc.line) {
+                        self.println(format!("{}:{}: {}", loc.file, loc.line, src));
+                    } else {
+                        self.println(format!("{}:{}", loc.file, loc.line));
+                    }
                 } else {
                     self.println(format!("0x{:x}", regs.pc));
                 }
