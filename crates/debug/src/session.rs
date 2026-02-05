@@ -285,14 +285,12 @@ impl<T: Target> Session<T> {
             return Err("Program is not running".to_string());
         }
 
-        if expr.starts_with('x') || expr.starts_with('X') {
-            if let Ok(n) = expr[1..].parse::<usize>() {
-                if n < 31 {
-                    let value = self.target.gpr(n)?;
-                    self.println(format!("{} = {} (0x{:x})", expr, value as i64, value));
-                    return Ok(false);
-                }
-            }
+        let arch = self.target.arch();
+
+        if let Some(reg_idx) = arch.parse_gpr(expr) {
+            let value = self.target.gpr(reg_idx)?;
+            self.println(format!("{} = {} (0x{:x})", expr, value as i64, value));
+            return Ok(false);
         }
 
         match expr.to_lowercase().as_str() {
@@ -304,15 +302,15 @@ impl<T: Target> Session<T> {
                 let pc = self.target.pc()?;
                 self.println(format!("pc = 0x{:x}", pc));
             }
-            "pstate" => {
-                let pstate = self.target.pstate()?;
-                self.println(format!("pstate = 0x{:x}", pstate));
+            s if s == arch.status_reg_name => {
+                let status = self.target.status_reg()?;
+                self.println(format!("{} = 0x{:x}", arch.status_reg_name, status));
             }
             _ => {
                 // Try to find as local variable
                 let pc = self.target.pc()?;
                 if let Some(reg_num) = self.find_local_register(expr, pc) {
-                    if reg_num < 31 {
+                    if reg_num < arch.gpr_count {
                         let value = self.target.gpr(reg_num)?;
                         self.println(format!("{} = {} (0x{:x})", expr, value as i64, value));
                         return Ok(false);
@@ -348,8 +346,9 @@ impl<T: Target> Session<T> {
 
         let frames = self.target.unwind_stack(50)?;
 
+        let arch = self.target.arch();
         for (index, (fp, addr)) in frames.iter().enumerate() {
-            let lookup_addr = if index == 0 { *addr } else { addr.saturating_sub(4) };
+            let lookup_addr = if index == 0 { *addr } else { addr.saturating_sub(arch.return_addr_decrement as u64) };
             let offset = lookup_addr.saturating_sub(self.code_base) as u32;
 
             if let Some(loc) = SourceMapper::offset_to_source(&self.debugger, offset) {
@@ -383,6 +382,7 @@ impl<T: Target> Session<T> {
                     return Err("Program is not running".to_string());
                 }
                 let pc = self.target.pc()?;
+                let arch = self.target.arch();
 
                 let output: Vec<String> = if let Some(ref debug_info) = self.debug_info {
                     let code_offset = pc.saturating_sub(self.code_base) as u32;
@@ -399,7 +399,7 @@ impl<T: Target> Session<T> {
                                 func_locals.locals.iter()
                                     .filter_map(|local| {
                                         let reg_num = local.register as usize;
-                                        if reg_num < 31 {
+                                        if reg_num < arch.gpr_count {
                                             let value = self.target.gpr(reg_num).ok()?;
                                             Some(format!("{} = {} (0x{:x})", local.name, value as i64, value))
                                         } else {
@@ -426,6 +426,7 @@ impl<T: Target> Session<T> {
                 if !self.target.is_running() {
                     return Err("Program is not running".to_string());
                 }
+                let arch = self.target.arch();
                 let gprs = self.target.all_gprs()?;
                 let mut line = String::new();
                 for (i, (_, value)) in gprs.iter().enumerate() {
@@ -433,7 +434,7 @@ impl<T: Target> Session<T> {
                         self.println(&line);
                         line.clear();
                     }
-                    line.push_str(&format!("x{:<2} = {:016x}  ", i, value));
+                    line.push_str(&format!("{:<4}= {:016x}  ", arch.gpr_name(i), value));
                 }
                 if !line.is_empty() {
                     self.println(&line);
@@ -572,13 +573,10 @@ impl<T: Target> Session<T> {
             return Err("Program is not running".to_string());
         }
 
-        if expr.starts_with('x') || expr.starts_with('X') {
-            if let Ok(n) = expr[1..].parse::<usize>() {
-                if n < 31 {
-                    let value = self.target.gpr(n)?;
-                    return Ok(value as i64);
-                }
-            }
+        let arch = self.target.arch();
+        if let Some(reg_idx) = arch.parse_gpr(expr) {
+            let value = self.target.gpr(reg_idx)?;
+            return Ok(value as i64);
         }
 
         match expr.to_lowercase().as_str() {
@@ -661,6 +659,7 @@ impl<T: Target> Session<T> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::arch::AARCH64;
     use crate::target::Target;
     use crate::types::StopReason;
 
@@ -670,7 +669,7 @@ pub(crate) mod tests {
         pub(crate) pc: u64,
         pub(crate) gprs: [u64; 31],
         pub(crate) sp: u64,
-        pub(crate) pstate: u64,
+        pub(crate) status_reg: u64,
         /// Sequence of stop reasons to return from start/cont/step
         pub(crate) stop_sequence: Vec<StopReason>,
         pub(crate) stop_index: usize,
@@ -687,7 +686,7 @@ pub(crate) mod tests {
                 pc: 0,
                 gprs: [0; 31],
                 sp: 0,
-                pstate: 0,
+                status_reg: 0,
                 stop_sequence: vec![],
                 stop_index: 0,
                 start_error: None,
@@ -753,8 +752,8 @@ pub(crate) mod tests {
             Ok(self.sp)
         }
 
-        fn pstate(&self) -> Result<u64, String> {
-            Ok(self.pstate)
+        fn status_reg(&self) -> Result<u64, String> {
+            Ok(self.status_reg)
         }
 
         fn all_gprs(&self) -> Result<Vec<(usize, u64)>, String> {
@@ -783,6 +782,10 @@ pub(crate) mod tests {
         fn kill(&mut self) -> Result<(), String> {
             self.running = false;
             Ok(())
+        }
+
+        fn arch(&self) -> &'static crate::arch::ArchInfo {
+            &AARCH64
         }
     }
 
@@ -1200,7 +1203,7 @@ pub(crate) mod tests {
         target.pc = code_base + pc_offset;
         target.gprs[0] = 42;
         target.sp = 0xffff0000;
-        target.pstate = 0x60000000;
+        target.status_reg = 0x60000000;
         Session::new(target, Some(make_debug_info()), code_base, "test".to_string())
     }
 

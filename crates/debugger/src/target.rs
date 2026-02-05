@@ -422,7 +422,7 @@ impl debug::Target for PtraceTarget {
         Ok(regs.sp)
     }
 
-    fn pstate(&self) -> Result<u64, String> {
+    fn status_reg(&self) -> Result<u64, String> {
         let regs = self.get_registers().map_err(|e| e.to_string())?;
         Ok(regs.pstate)
     }
@@ -450,6 +450,10 @@ impl debug::Target for PtraceTarget {
 
     fn kill(&mut self) -> Result<(), String> {
         self.ptrace_kill().map_err(|e| e.to_string())
+    }
+
+    fn arch(&self) -> &'static debug::ArchInfo {
+        &debug::arch::AARCH64
     }
 }
 

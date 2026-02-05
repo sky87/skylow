@@ -3,6 +3,7 @@
 //! The [`Target`] trait abstracts over platform-specific process control mechanisms
 //! (e.g., ptrace on Linux), allowing the debugger session logic to be platform-independent.
 
+use crate::arch::ArchInfo;
 use crate::types::StopReason;
 
 /// Abstract interface for controlling a debug target process.
@@ -33,14 +34,14 @@ pub trait Target {
     /// Read the program counter.
     fn pc(&self) -> Result<u64, String>;
 
-    /// Read a general-purpose register by index (0-30 on AArch64).
+    /// Read a general-purpose register by index.
     fn gpr(&self, index: usize) -> Result<u64, String>;
 
     /// Read the stack pointer.
     fn sp(&self) -> Result<u64, String>;
 
-    /// Read the processor state register.
-    fn pstate(&self) -> Result<u64, String>;
+    /// Read the processor status register (e.g. pstate on AArch64, eflags on x86_64).
+    fn status_reg(&self) -> Result<u64, String>;
 
     /// Read all general-purpose registers. Returns (index, value) pairs.
     fn all_gprs(&self) -> Result<Vec<(usize, u64)>, String>;
@@ -62,4 +63,7 @@ pub trait Target {
 
     /// Kill the target process.
     fn kill(&mut self) -> Result<(), String>;
+
+    /// Get the architecture info for this target.
+    fn arch(&self) -> &'static ArchInfo;
 }

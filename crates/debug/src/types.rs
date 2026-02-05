@@ -179,9 +179,9 @@ pub struct StackFrame {
     pub col: Option<u32>,
     /// Code offset within the function
     pub code_offset: u32,
-    /// Frame pointer (X29 on AArch64)
+    /// Frame pointer
     pub frame_pointer: Option<u64>,
-    /// Return address (X30/LR on AArch64)
+    /// Return address
     pub return_address: Option<u64>,
 }
 

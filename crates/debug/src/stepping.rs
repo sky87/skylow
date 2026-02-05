@@ -38,9 +38,12 @@ impl Stepper {
     /// Calculate the next stop point for a step operation
     ///
     /// Returns the code offset to stop at, or None if we should run to completion.
+    /// `return_addr_decrement` is the number of bytes to subtract from the end of a function
+    /// to find the last instruction (from `ArchInfo::return_addr_decrement`).
     pub fn calculate_step_target(
         debugger: &Debugger,
         mode: StepMode,
+        return_addr_decrement: u32,
     ) -> Option<u32> {
         let debug_info = debugger.debug_info()?;
         let current_offset = debugger.current_offset();
@@ -92,7 +95,7 @@ impl Stepper {
                         current_offset >= s.code_offset
                             && current_offset < s.code_offset + s.code_size
                     })
-                    .map(|s| s.code_offset + s.code_size - 4) // Assume last instruction
+                    .map(|s| s.code_offset + s.code_size - return_addr_decrement)
             }
         }
     }
@@ -167,8 +170,9 @@ impl Stepper {
     /// This method calculates where we would stop and updates the debugger's
     /// current offset. In a real implementation, this would involve executing
     /// instructions until the target is reached.
-    pub fn simulate_step(debugger: &mut Debugger, mode: StepMode) -> StepResult {
-        let target = match Self::calculate_step_target(debugger, mode) {
+    /// `return_addr_decrement` is from `ArchInfo::return_addr_decrement`.
+    pub fn simulate_step(debugger: &mut Debugger, mode: StepMode, return_addr_decrement: u32) -> StepResult {
+        let target = match Self::calculate_step_target(debugger, mode, return_addr_decrement) {
             Some(offset) => offset,
             None => {
                 debugger.set_state(DebugState::Stopped(StopReason::Exited(0)));
@@ -283,11 +287,11 @@ mod tests {
         debugger.load_debug_info(make_debug_info());
         debugger.set_current_offset(0);
 
-        let target = Stepper::calculate_step_target(&debugger, StepMode::Instruction);
+        let target = Stepper::calculate_step_target(&debugger, StepMode::Instruction, 4);
         assert_eq!(target, Some(16));
 
         debugger.set_current_offset(16);
-        let target = Stepper::calculate_step_target(&debugger, StepMode::Instruction);
+        let target = Stepper::calculate_step_target(&debugger, StepMode::Instruction, 4);
         assert_eq!(target, Some(32));
     }
 
@@ -298,12 +302,12 @@ mod tests {
         debugger.set_current_offset(0);
 
         // From line 1, should go to line 2
-        let target = Stepper::calculate_step_target(&debugger, StepMode::Line);
+        let target = Stepper::calculate_step_target(&debugger, StepMode::Line, 4);
         assert_eq!(target, Some(16));
 
         // From line 2 (offset 16), should skip 32 (same line) and go to line 3 (48)
         debugger.set_current_offset(16);
-        let target = Stepper::calculate_step_target(&debugger, StepMode::Line);
+        let target = Stepper::calculate_step_target(&debugger, StepMode::Line, 4);
         assert_eq!(target, Some(48));
     }
 
@@ -314,7 +318,7 @@ mod tests {
         debugger.set_current_offset(16);
         debugger.set_current_func_id(Some(0));
 
-        let target = Stepper::calculate_step_target(&debugger, StepMode::Out);
+        let target = Stepper::calculate_step_target(&debugger, StepMode::Out, 4);
         assert_eq!(target, Some(80)); // Epilogue offset
     }
 
@@ -322,9 +326,9 @@ mod tests {
     fn test_step_no_debug_info() {
         let debugger = Debugger::new();
 
-        assert!(Stepper::calculate_step_target(&debugger, StepMode::Instruction).is_none());
-        assert!(Stepper::calculate_step_target(&debugger, StepMode::Line).is_none());
-        assert!(Stepper::calculate_step_target(&debugger, StepMode::Out).is_none());
+        assert!(Stepper::calculate_step_target(&debugger, StepMode::Instruction, 4).is_none());
+        assert!(Stepper::calculate_step_target(&debugger, StepMode::Line, 4).is_none());
+        assert!(Stepper::calculate_step_target(&debugger, StepMode::Out, 4).is_none());
     }
 
     #[test]
@@ -395,7 +399,7 @@ mod tests {
         debugger.load_debug_info(make_debug_info());
         debugger.set_current_offset(0);
 
-        let result = Stepper::simulate_step(&mut debugger, StepMode::Instruction);
+        let result = Stepper::simulate_step(&mut debugger, StepMode::Instruction, 4);
         match result {
             StepResult::Stepped { offset, line } => {
                 assert_eq!(offset, 16);
@@ -414,7 +418,7 @@ mod tests {
         debugger.load_debug_info(make_debug_info());
         debugger.set_current_offset(80); // At epilogue
 
-        let result = Stepper::simulate_step(&mut debugger, StepMode::Instruction);
+        let result = Stepper::simulate_step(&mut debugger, StepMode::Instruction, 4);
         assert_eq!(result, StepResult::Finished);
         assert_eq!(*debugger.state(), DebugState::Stopped(StopReason::Exited(0)));
     }
@@ -468,7 +472,7 @@ mod tests {
         debugger.set_current_offset(16);
         // No func_id set
 
-        let target = Stepper::calculate_step_target(&debugger, StepMode::Out);
+        let target = Stepper::calculate_step_target(&debugger, StepMode::Out, 4);
         assert!(target.is_none());
     }
 }

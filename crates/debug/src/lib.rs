@@ -8,6 +8,7 @@
 //! - [`Breakpoint`] - Breakpoint representation
 //! - [`DebugState`] - Current debugging state (running, stopped, etc.)
 
+pub mod arch;
 pub mod breakpoints;
 pub mod commands;
 pub mod inspection;
@@ -18,6 +19,7 @@ pub mod stepping;
 pub mod target;
 pub mod types;
 
+pub use arch::ArchInfo;
 pub use breakpoints::BreakpointManager;
 pub use commands::Command;
 pub use inspection::Inspector;
