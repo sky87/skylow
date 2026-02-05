@@ -8,12 +8,16 @@ This is a Cargo workspace with the following crates:
 
 | Crate | Path | Description |
 |-------|------|-------------|
-| **common** | `crates/common/` | Shared utilities (debug logging, string interning) |
-| **parser** | `crates/parser/` | Core parser library with clean public API |
+| **common** | `crates/common/` | Shared utilities (debug logging, string interning, source tracking) |
+| **parser** | `crates/parser/` | Core parser library with interpreter and bytecode VM |
 | **baselang** | `crates/baselang/` | Typed AST with prelude syntax definitions |
 | **mir** | `crates/mir/` | Mid-level IR (register-based intermediate representation) |
+| **codegen** | `crates/codegen/` | Shared AArch64 code generation infrastructure |
+| **debuginfo** | `crates/debuginfo/` | Debug information types and `.skydbg` serialization |
+| **debug** | `crates/debug/` | Debugging support (breakpoints, stepping, inspection) |
+| **debugger** | `crates/debugger/` | Interactive debugger (`skydbg` binary) |
 | **jit** | `crates/jit/` | JIT compiler targeting AArch64 |
-| **elf** | `crates/elf/` | ELF binary generation |
+| **elf** | `crates/elf/` | ELF binary generation with optional debug sidecar |
 | **compiler** | `crates/compiler/` | Compiler library with driver and test runner |
 | **cli** | `crates/cli/` | Command-line interface |
 
@@ -191,6 +195,64 @@ fn "simple":
 |-----------|-------------|
 | `.skyh` | Syntax definition files (used by parse command) |
 | `.skyl` | SkyLow program files (used by test, run, compile) |
+
+## Debugger
+
+SkyLow includes `skydbg`, a GDB-like debugger for debugging compiled binaries.
+
+### Quick Start
+
+```bash
+# Build a binary with debug info
+cargo run -p cli -- compile program.skyl -o program
+
+# Start the debugger
+cargo run -p debugger -- program
+
+# Or after building
+skydbg program
+```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `break <file>:<line>` | Set breakpoint at source location |
+| `break <function>` | Set breakpoint at function entry |
+| `delete <n>` | Delete breakpoint |
+| `run [args...]` | Start program execution |
+| `continue`, `c` | Continue execution |
+| `step`, `s` | Step one source line |
+| `stepi`, `si` | Step one instruction |
+| `next`, `n` | Step over function calls |
+| `finish` | Run until current function returns |
+| `print <expr>`, `p` | Print expression value |
+| `backtrace`, `bt` | Print stack trace |
+| `info locals` | Print local variables |
+| `info registers` | Print register values |
+| `info breakpoints` | List breakpoints |
+| `list [file:line]` | Show source context |
+| `quit`, `q` | Exit debugger |
+
+### Script Mode
+
+Run debugger commands from a script file:
+
+```bash
+skydbg --script test.dbg program
+```
+
+Scripts support assertions for automated testing:
+
+```
+break main
+run
+expect stop at program.skyl:5
+step
+assert x == 42
+continue
+quit
+```
 
 ## Debug Logging
 

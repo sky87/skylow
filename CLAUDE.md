@@ -4,14 +4,18 @@ Rust port of the SkyHigh parser targeting a low-level language subset (no closur
 
 ## Project Structure
 
-This is a Cargo workspace with eight crates:
+This is a Cargo workspace with twelve crates:
 
-- **common** (`crates/common/`) - Shared utilities (debug logging, string interning)
-- **parser** (`crates/parser/`) - Core parser library with clean public API
+- **common** (`crates/common/`) - Shared utilities (debug logging, string interning, source tracking)
+- **parser** (`crates/parser/`) - Core parser library with interpreter and bytecode VM
 - **baselang** (`crates/baselang/`) - Typed AST with prelude syntax definitions
 - **mir** (`crates/mir/`) - Mid-level IR (register-based intermediate representation)
+- **codegen** (`crates/codegen/`) - Shared AArch64 code generation infrastructure
+- **debuginfo** (`crates/debuginfo/`) - Debug information types and `.skydbg` serialization
+- **debug** (`crates/debug/`) - Debugging support (breakpoints, stepping, inspection)
+- **debugger** (`crates/debugger/`) - Interactive debugger (`skydbg` binary)
 - **jit** (`crates/jit/`) - JIT compiler targeting AArch64
-- **elf** (`crates/elf/`) - ELF binary generation
+- **elf** (`crates/elf/`) - ELF binary generation with optional debug sidecar
 - **compiler** (`crates/compiler/`) - Compiler library with driver and test runner
 - **cli** (`crates/cli/`) - Command-line interface
 
@@ -20,9 +24,25 @@ This is a Cargo workspace with eight crates:
 ```bash
 cargo build                              # debug build
 cargo build --release                    # release build
-cargo run -p cli -- file.skyh     # parse a file (uses VM by default)
-cargo run -p cli -- --parser-interp file.skyh  # use interpreted parser
 cargo test                               # run tests
+```
+
+### CLI Commands
+
+```bash
+# Parse syntax files (.skyh)
+cargo run -p cli -- file.skyh                    # parse and print AST (uses VM parser)
+cargo run -p cli -- --parser-interp file.skyh   # use interpreted parser
+
+# Run and test programs (.skyl)
+cargo run -p cli -- test file.skyl               # run tests with JIT
+cargo run -p cli -- run file.skyl                # run main() with JIT
+cargo run -p cli -- compile file.skyl -o out     # compile to ELF binary
+
+# Inspect intermediate representations
+cargo run -p cli -- --emit=parse file.skyl       # print parsed syntax tree
+cargo run -p cli -- --emit=ast file.skyl         # print BaseLang AST
+cargo run -p cli -- --emit=mir file.skyl         # print MIR
 ```
 
 ## Debug Logging
@@ -61,6 +81,7 @@ log.pop_indent();
 
 ```bash
 cargo cov                    # run tests with coverage report
+cargo cov-html               # generate HTML coverage report
 cargo cov-lcov               # generate lcov format for CI integration
 ```
 
@@ -130,6 +151,8 @@ Each crate has its own file-based tests using `datatest-stable`:
 - **baselang** (`crates/baselang/tests/lower/`) - AST lowering tests (`.skyl` → `.skyl.expected`)
 - **mir** (`crates/mir/tests/compile/`) - MIR compilation tests (`.skyl` → `.skyl.expected`)
 - **jit** (`crates/jit/tests/execute/`) - JIT execution tests (`.skyl` → `.skyl.expected`)
+- **elf** (`crates/elf/tests/compile/`) - ELF binary tests (`.skyl` → `.skyl.expected`)
+- **debugger** (`crates/debugger/tests/debug/`) - Debugger integration tests (`.skyl` → `.skyl.expected`)
 - **compiler** (`crates/compiler/tests/e2e/`) - Full pipeline integration tests (`.skyl` → `.skyl.expected`)
 
 **Adding a new test:**
