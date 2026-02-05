@@ -94,12 +94,18 @@ impl Breakpoint {
 /// Reason for stopping execution
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StopReason {
-    /// Hit a breakpoint
+    /// Hit a breakpoint (resolved to breakpoint ID)
     Breakpoint(BreakpointId),
+    /// Hit a breakpoint (raw address from target)
+    BreakpointHit(u64),
     /// Step completed
     Step,
     /// Program exited normally
     Exited(i32),
+    /// Program was killed by signal
+    Signaled(i32),
+    /// Stopped by other signal
+    Signal(i32),
     /// Program crashed or hit an error
     Error(String),
     /// User requested pause

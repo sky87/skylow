@@ -8,7 +8,9 @@
 use baselang::{lower_program as lower_to_ast, parse_with_prelude_named};
 use bumpalo::Bump;
 use datatest_stable::harness;
-use debugger::Session;
+use debug::Session;
+use debugger::PtraceTarget;
+use debuginfo::read_skydbg;
 use elf::generate_elf_from_program_with_debug;
 use mir::lower_program as lower_to_mir;
 use std::fs::{self, File};
@@ -67,7 +69,6 @@ fn run_test(path: &Path) -> datatest_stable::Result<()> {
     {
         let mut binary_file = File::create(&binary_path)?;
         binary_file.write_all(&result.elf)?;
-        // File closes when binary_file goes out of scope
     }
 
     // Make executable
@@ -82,15 +83,24 @@ fn run_test(path: &Path) -> datatest_stable::Result<()> {
     if let Some(debug_data) = result.debug_sidecar {
         let mut debug_file = File::create(&debug_path)?;
         debug_file.write_all(&debug_data)?;
-        // File closes when debug_file goes out of scope
     }
 
     // Small delay to ensure file system has finished writing
     std::thread::sleep(std::time::Duration::from_millis(10));
 
     // Create debugger session
-    let mut session = Session::new(binary_path.clone(), vec![])
-        .map_err(|e| format!("Failed to create session: {}", e))?;
+    let target = PtraceTarget::new(&binary_path, vec![]);
+    let debug_info = if debug_path.exists() {
+        match File::open(&debug_path) {
+            Ok(mut f) => read_skydbg(&mut f).ok(),
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+    let code_base: u64 = 0x400000 + 120;
+    let binary_name = binary_path.display().to_string();
+    let mut session = Session::new(target, debug_info, code_base, binary_name);
 
     // Execute script commands
     for line in script.lines() {

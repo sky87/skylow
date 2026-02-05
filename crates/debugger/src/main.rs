@@ -6,12 +6,15 @@
 //!   skydbg <binary>              # Start REPL
 //!   skydbg --script <script> <binary>  # Run script
 
-mod commands;
 mod repl;
-mod script;
 mod target;
 
+use debug::Session;
+use debuginfo::read_skydbg;
+use target::PtraceTarget;
+
 use std::env;
+use std::fs::File;
 use std::path::PathBuf;
 use std::process;
 
@@ -70,18 +73,38 @@ fn main() {
         process::exit(1);
     }
 
-    // Create debugger session
-    let mut session = match repl::Session::new(binary_path.clone(), binary_args) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Error creating session: {}", e);
-            process::exit(1);
+    // Create ptrace target
+    let target = PtraceTarget::new(&binary_path, binary_args);
+
+    // Load debug info from sidecar file
+    let debug_path = binary_path.with_extension("skydbg");
+    let debug_info = if debug_path.exists() {
+        match File::open(&debug_path) {
+            Ok(mut file) => match read_skydbg(&mut file) {
+                Ok(info) => Some(info),
+                Err(e) => {
+                    eprintln!("Warning: failed to read debug info: {}", e);
+                    None
+                }
+            },
+            Err(e) => {
+                eprintln!("Warning: failed to open debug file: {}", e);
+                None
+            }
         }
+    } else {
+        None
     };
+
+    // Code base is ELF load address + header size (64-byte ELF header + 56-byte program header)
+    let code_base: u64 = 0x400000 + 120;
+
+    let binary_name = binary_path.display().to_string();
+    let mut session = Session::new(target, debug_info, code_base, binary_name);
 
     // Run script or start REPL
     if let Some(script) = script_path {
-        match script::run_script(&mut session, &script) {
+        match debug::script::run_script(&mut session, &script) {
             Ok(()) => process::exit(0),
             Err(e) => {
                 eprintln!("Script error: {}", e);

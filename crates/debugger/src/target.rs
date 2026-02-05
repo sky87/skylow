@@ -2,24 +2,10 @@
 //!
 //! This module provides low-level process control for debugging ELF binaries.
 
+use debug::types::StopReason;
 use std::ffi::CString;
 use std::io;
 use std::path::Path;
-
-/// Reason the target stopped
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StopReason {
-    /// Hit a breakpoint
-    Breakpoint(u64),
-    /// Single step completed
-    Step,
-    /// Program exited with status code
-    Exited(i32),
-    /// Program was killed by signal
-    Signaled(i32),
-    /// Stopped by other signal
-    Signal(i32),
-}
 
 /// AArch64 registers
 #[derive(Debug, Clone, Default)]
@@ -34,8 +20,8 @@ pub struct Registers {
     pub pstate: u64,
 }
 
-/// A debugger target process
-pub struct Target {
+/// A debugger target process using ptrace
+pub struct PtraceTarget {
     /// Process ID
     pid: i32,
     /// Whether the process has been started
@@ -48,7 +34,7 @@ pub struct Target {
     breakpoint_instructions: std::collections::HashMap<u64, u32>,
 }
 
-impl Target {
+impl PtraceTarget {
     /// Create a new target for a binary
     pub fn new(binary: impl AsRef<Path>, args: Vec<String>) -> Self {
         Self {
@@ -61,8 +47,7 @@ impl Target {
     }
 
     /// Start the target process
-    pub fn start(&mut self) -> io::Result<StopReason> {
-        // Fork and exec the target
+    fn ptrace_start(&mut self) -> io::Result<StopReason> {
         let pid = unsafe { libc::fork() };
 
         if pid < 0 {
@@ -70,26 +55,21 @@ impl Target {
         }
 
         if pid == 0 {
-            // Child process
             self.child_exec();
         }
 
-        // Parent process
         self.pid = pid;
         self.running = true;
 
-        // Wait for the child to stop (after PTRACE_TRACEME + exec)
         self.wait()
     }
 
     /// Execute the target binary in the child process
     fn child_exec(&self) -> ! {
-        // Request to be traced
         unsafe {
             libc::ptrace(libc::PTRACE_TRACEME, 0, 0, 0);
         }
 
-        // Build argv
         let binary_cstr = CString::new(self.binary.as_str()).unwrap();
         let mut argv_cstrings: Vec<CString> = vec![binary_cstr.clone()];
         for arg in &self.args {
@@ -99,18 +79,16 @@ impl Target {
         let mut argv: Vec<*const libc::c_char> = argv_cstrings.iter().map(|s| s.as_ptr()).collect();
         argv.push(std::ptr::null());
 
-        // Exec
         unsafe {
             libc::execv(binary_cstr.as_ptr(), argv.as_ptr());
         }
 
-        // If we get here, exec failed
         eprintln!("exec failed: {}", io::Error::last_os_error());
         unsafe { libc::_exit(127) };
     }
 
     /// Wait for the target to stop
-    pub fn wait(&self) -> io::Result<StopReason> {
+    fn wait(&self) -> io::Result<StopReason> {
         let mut status: libc::c_int = 0;
         let result = unsafe { libc::waitpid(self.pid, &mut status, 0) };
 
@@ -118,7 +96,6 @@ impl Target {
             return Err(io::Error::last_os_error());
         }
 
-        // Decode wait status
         if libc::WIFEXITED(status) {
             Ok(StopReason::Exited(libc::WEXITSTATUS(status)))
         } else if libc::WIFSIGNALED(status) {
@@ -126,11 +103,9 @@ impl Target {
         } else if libc::WIFSTOPPED(status) {
             let sig = libc::WSTOPSIG(status);
             if sig == libc::SIGTRAP {
-                // Could be breakpoint or step
                 let regs = self.get_registers()?;
-                // On AArch64, BRK sets PC to the BRK instruction address
                 if self.breakpoint_instructions.contains_key(&regs.pc) {
-                    Ok(StopReason::Breakpoint(regs.pc))
+                    Ok(StopReason::BreakpointHit(regs.pc))
                 } else {
                     Ok(StopReason::Step)
                 }
@@ -143,7 +118,7 @@ impl Target {
     }
 
     /// Continue execution
-    pub fn cont(&self) -> io::Result<StopReason> {
+    fn ptrace_cont(&self) -> io::Result<StopReason> {
         let result = unsafe { libc::ptrace(libc::PTRACE_CONT, self.pid, 0, 0) };
         if result < 0 {
             return Err(io::Error::last_os_error());
@@ -152,7 +127,7 @@ impl Target {
     }
 
     /// Single step one instruction
-    pub fn step(&self) -> io::Result<StopReason> {
+    fn ptrace_step(&self) -> io::Result<StopReason> {
         let result = unsafe { libc::ptrace(libc::PTRACE_SINGLESTEP, self.pid, 0, 0) };
         if result < 0 {
             return Err(io::Error::last_os_error());
@@ -164,7 +139,6 @@ impl Target {
     pub fn get_registers(&self) -> io::Result<Registers> {
         let mut regs = Registers::default();
 
-        // Use PTRACE_GETREGSET with NT_PRSTATUS for AArch64
         let mut iovec = libc::iovec {
             iov_base: &mut regs as *mut Registers as *mut libc::c_void,
             iov_len: std::mem::size_of::<Registers>(),
@@ -246,7 +220,6 @@ impl Target {
         let mut offset = 0;
 
         while offset < data.len() {
-            // Read existing word if we're not writing a full word
             let remaining = data.len() - offset;
             let mut word_bytes = if remaining < 8 {
                 let existing = self.read_memory(addr + offset as u64, 8)?;
@@ -257,7 +230,6 @@ impl Target {
                 [0u8; 8]
             };
 
-            // Copy new data into word
             let copy_len = std::cmp::min(8, remaining);
             word_bytes[..copy_len].copy_from_slice(&data[offset..offset + copy_len]);
 
@@ -281,24 +253,21 @@ impl Target {
         Ok(())
     }
 
-    /// Set a breakpoint at an address
-    pub fn set_breakpoint(&mut self, addr: u64) -> io::Result<()> {
-        // Read the original instruction
+    /// Set a breakpoint at an address (internal)
+    fn ptrace_set_breakpoint(&mut self, addr: u64) -> io::Result<()> {
         let orig_bytes = self.read_memory(addr, 4)?;
         let orig_inst = u32::from_le_bytes([orig_bytes[0], orig_bytes[1], orig_bytes[2], orig_bytes[3]]);
 
-        // Save original instruction
         self.breakpoint_instructions.insert(addr, orig_inst);
 
-        // Write BRK #0 instruction (0xD4200000)
         let brk_inst: u32 = 0xD4200000;
         self.write_memory(addr, &brk_inst.to_le_bytes())?;
 
         Ok(())
     }
 
-    /// Remove a breakpoint at an address
-    pub fn remove_breakpoint(&mut self, addr: u64) -> io::Result<bool> {
+    /// Remove a breakpoint at an address (internal)
+    fn ptrace_remove_breakpoint(&mut self, addr: u64) -> io::Result<bool> {
         if let Some(orig_inst) = self.breakpoint_instructions.remove(&addr) {
             self.write_memory(addr, &orig_inst.to_le_bytes())?;
             Ok(true)
@@ -307,61 +276,47 @@ impl Target {
         }
     }
 
-    /// Continue past a breakpoint
-    ///
-    /// This restores the original instruction, single steps, then reinstalls the breakpoint.
-    pub fn continue_past_breakpoint(&mut self, bp_addr: u64) -> io::Result<StopReason> {
-        // Restore original instruction
+    /// Continue past a breakpoint (internal)
+    fn ptrace_continue_past_breakpoint(&mut self, bp_addr: u64) -> io::Result<StopReason> {
         if let Some(&orig_inst) = self.breakpoint_instructions.get(&bp_addr) {
             self.write_memory(bp_addr, &orig_inst.to_le_bytes())?;
 
-            // Set PC back to the breakpoint address
             let mut regs = self.get_registers()?;
             regs.pc = bp_addr;
             self.set_registers(&regs)?;
 
-            // Single step
-            let result = self.step()?;
+            let result = self.ptrace_step()?;
 
-            // Reinstall breakpoint
             let brk_inst: u32 = 0xD4200000;
             self.write_memory(bp_addr, &brk_inst.to_le_bytes())?;
 
-            // If we hit another breakpoint or finished stepping, handle it
             match result {
-                StopReason::Step => self.cont(),
+                StopReason::Step => self.ptrace_cont(),
                 other => Ok(other),
             }
         } else {
-            self.cont()
+            self.ptrace_cont()
         }
     }
 
-    /// Step past a breakpoint: restore original instruction, step, re-install breakpoint
-    pub fn step_past_breakpoint(&mut self, bp_addr: u64) -> io::Result<StopReason> {
+    /// Step past a breakpoint (internal)
+    fn ptrace_step_past_breakpoint(&mut self, bp_addr: u64) -> io::Result<StopReason> {
         if let Some(orig_inst) = self.breakpoint_instructions.remove(&bp_addr) {
-            // Restore original instruction in memory
             self.write_memory(bp_addr, &orig_inst.to_le_bytes())?;
 
-            // Set PC back to the breakpoint address
             let mut regs = self.get_registers()?;
             regs.pc = bp_addr;
             self.set_registers(&regs)?;
 
-            // Single step (executes the original instruction)
-            // Note: breakpoint_instructions entry is removed so wait() won't
-            // misidentify the step as a breakpoint hit
-            let result = self.step()?;
+            let result = self.ptrace_step()?;
 
-            // Re-insert breakpoint into tracking map and memory
             self.breakpoint_instructions.insert(bp_addr, orig_inst);
             let brk_inst: u32 = 0xD4200000;
             self.write_memory(bp_addr, &brk_inst.to_le_bytes())?;
 
             Ok(result)
         } else {
-            // No breakpoint here, just step normally
-            self.step()
+            self.ptrace_step()
         }
     }
 
@@ -371,13 +326,8 @@ impl Target {
         self.pid
     }
 
-    /// Check if the target is running
-    pub fn is_running(&self) -> bool {
-        self.running
-    }
-
     /// Kill the target process
-    pub fn kill(&mut self) -> io::Result<()> {
+    fn ptrace_kill(&mut self) -> io::Result<()> {
         if self.pid > 0 && self.running {
             unsafe { libc::kill(self.pid, libc::SIGKILL) };
             self.running = false;
@@ -385,37 +335,23 @@ impl Target {
         Ok(())
     }
 
-    /// Unwind the stack and return a list of (frame_pointer, return_address) pairs.
-    ///
-    /// On AArch64, the frame chain is:
-    /// - X29 (FP) points to the current frame
-    /// - [FP] contains the previous FP (saved by callee)
-    /// - [FP+8] contains the return address (saved LR)
-    ///
-    /// Returns frames from innermost (current) to outermost (main/entry).
-    /// The first entry is (current_fp, current_pc), subsequent entries are
-    /// (saved_fp, return_address).
-    pub fn unwind_stack(&self, max_frames: usize) -> io::Result<Vec<(u64, u64)>> {
+    /// Unwind the stack (internal)
+    fn ptrace_unwind_stack(&self, max_frames: usize) -> io::Result<Vec<(u64, u64)>> {
         let regs = self.get_registers()?;
         let mut frames = Vec::new();
 
-        // First frame: current PC and FP
         frames.push((regs.x[29], regs.pc));
 
-        // Walk the frame pointer chain
-        let mut fp = regs.x[29]; // X29 is the frame pointer on AArch64
+        let mut fp = regs.x[29];
 
         for _ in 1..max_frames {
-            // Stop if FP is null or invalid
             if fp == 0 || fp < 0x1000 {
                 break;
             }
 
-            // Read saved FP and return address from the stack
-            // On AArch64: [FP] = saved FP, [FP+8] = saved LR (return address)
             let frame_data = match self.read_memory(fp, 16) {
                 Ok(data) => data,
-                Err(_) => break, // Stop on memory read errors
+                Err(_) => break,
             };
 
             if frame_data.len() < 16 {
@@ -423,35 +359,20 @@ impl Target {
             }
 
             let saved_fp = u64::from_le_bytes([
-                frame_data[0],
-                frame_data[1],
-                frame_data[2],
-                frame_data[3],
-                frame_data[4],
-                frame_data[5],
-                frame_data[6],
-                frame_data[7],
+                frame_data[0], frame_data[1], frame_data[2], frame_data[3],
+                frame_data[4], frame_data[5], frame_data[6], frame_data[7],
             ]);
             let return_addr = u64::from_le_bytes([
-                frame_data[8],
-                frame_data[9],
-                frame_data[10],
-                frame_data[11],
-                frame_data[12],
-                frame_data[13],
-                frame_data[14],
-                frame_data[15],
+                frame_data[8], frame_data[9], frame_data[10], frame_data[11],
+                frame_data[12], frame_data[13], frame_data[14], frame_data[15],
             ]);
 
-            // Stop if return address is null (reached the bottom of the stack)
             if return_addr == 0 {
                 break;
             }
 
             frames.push((saved_fp, return_addr));
 
-            // Move to the previous frame
-            // Stop if we're not making progress (stuck in a loop)
             if saved_fp == 0 || saved_fp == fp {
                 break;
             }
@@ -462,28 +383,98 @@ impl Target {
     }
 }
 
-impl Drop for Target {
+impl debug::Target for PtraceTarget {
+    fn start(&mut self) -> Result<StopReason, String> {
+        self.ptrace_start().map_err(|e| e.to_string())
+    }
+
+    fn cont(&mut self) -> Result<StopReason, String> {
+        self.ptrace_cont().map_err(|e| e.to_string())
+    }
+
+    fn step(&mut self) -> Result<StopReason, String> {
+        self.ptrace_step().map_err(|e| e.to_string())
+    }
+
+    fn continue_past_breakpoint(&mut self, addr: u64) -> Result<StopReason, String> {
+        self.ptrace_continue_past_breakpoint(addr).map_err(|e| e.to_string())
+    }
+
+    fn step_past_breakpoint(&mut self, addr: u64) -> Result<StopReason, String> {
+        self.ptrace_step_past_breakpoint(addr).map_err(|e| e.to_string())
+    }
+
+    fn pc(&self) -> Result<u64, String> {
+        let regs = self.get_registers().map_err(|e| e.to_string())?;
+        Ok(regs.pc)
+    }
+
+    fn gpr(&self, index: usize) -> Result<u64, String> {
+        if index >= 31 {
+            return Err(format!("Invalid GPR index: {}", index));
+        }
+        let regs = self.get_registers().map_err(|e| e.to_string())?;
+        Ok(regs.x[index])
+    }
+
+    fn sp(&self) -> Result<u64, String> {
+        let regs = self.get_registers().map_err(|e| e.to_string())?;
+        Ok(regs.sp)
+    }
+
+    fn pstate(&self) -> Result<u64, String> {
+        let regs = self.get_registers().map_err(|e| e.to_string())?;
+        Ok(regs.pstate)
+    }
+
+    fn all_gprs(&self) -> Result<Vec<(usize, u64)>, String> {
+        let regs = self.get_registers().map_err(|e| e.to_string())?;
+        Ok((0..31).map(|i| (i, regs.x[i])).collect())
+    }
+
+    fn set_breakpoint(&mut self, addr: u64) -> Result<(), String> {
+        self.ptrace_set_breakpoint(addr).map_err(|e| e.to_string())
+    }
+
+    fn remove_breakpoint(&mut self, addr: u64) -> Result<bool, String> {
+        self.ptrace_remove_breakpoint(addr).map_err(|e| e.to_string())
+    }
+
+    fn is_running(&self) -> bool {
+        self.running
+    }
+
+    fn unwind_stack(&self, max_frames: usize) -> Result<Vec<(u64, u64)>, String> {
+        self.ptrace_unwind_stack(max_frames).map_err(|e| e.to_string())
+    }
+
+    fn kill(&mut self) -> Result<(), String> {
+        self.ptrace_kill().map_err(|e| e.to_string())
+    }
+}
+
+impl Drop for PtraceTarget {
     fn drop(&mut self) {
-        let _ = self.kill();
+        let _ = self.ptrace_kill();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use debug::Target;
 
     #[test]
     fn test_stop_reason_equality() {
         assert_eq!(StopReason::Exited(0), StopReason::Exited(0));
         assert_ne!(StopReason::Exited(0), StopReason::Exited(1));
-        assert_eq!(StopReason::Breakpoint(0x1000), StopReason::Breakpoint(0x1000));
+        assert_eq!(StopReason::BreakpointHit(0x1000), StopReason::BreakpointHit(0x1000));
         assert_eq!(StopReason::Step, StopReason::Step);
     }
 
     #[test]
     fn test_stop_reason_debug() {
-        // Test Debug trait for StopReason variants
-        let _ = format!("{:?}", StopReason::Breakpoint(0x1000));
+        let _ = format!("{:?}", StopReason::BreakpointHit(0x1000));
         let _ = format!("{:?}", StopReason::Step);
         let _ = format!("{:?}", StopReason::Exited(0));
         let _ = format!("{:?}", StopReason::Signaled(9));
@@ -492,7 +483,7 @@ mod tests {
 
     #[test]
     fn test_stop_reason_clone() {
-        let reason = StopReason::Breakpoint(0x2000);
+        let reason = StopReason::BreakpointHit(0x2000);
         let cloned = reason.clone();
         assert_eq!(reason, cloned);
     }
@@ -527,14 +518,14 @@ mod tests {
 
     #[test]
     fn test_target_new() {
-        let target = Target::new("/bin/true", vec![]);
+        let target = PtraceTarget::new("/bin/true", vec![]);
         assert_eq!(target.pid(), 0);
         assert!(!target.is_running());
     }
 
     #[test]
     fn test_target_new_with_args() {
-        let target = Target::new("/bin/echo", vec!["hello".to_string(), "world".to_string()]);
+        let target = PtraceTarget::new("/bin/echo", vec!["hello".to_string(), "world".to_string()]);
         assert_eq!(target.pid(), 0);
         assert!(!target.is_running());
     }
@@ -543,7 +534,7 @@ mod tests {
     fn test_target_new_path_buf() {
         use std::path::PathBuf;
         let path = PathBuf::from("/usr/bin/test");
-        let target = Target::new(&path, vec![]);
+        let target = PtraceTarget::new(&path, vec![]);
         assert_eq!(target.pid(), 0);
     }
 }
