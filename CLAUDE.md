@@ -169,6 +169,7 @@ Each crate has its own file-based tests using `datatest-stable`:
 ## Guidelines
 
 - If something looks strange or is hard to understand, ask for clarification
+- For implementing new language features, use `/implement-feature` to get the full workflow
 
 ### Running Commands with Timeouts
 

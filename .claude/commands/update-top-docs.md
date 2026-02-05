@@ -1,0 +1,5 @@
+Update CLAUDE.md to bring it up to date with the current state of the project.
+
+Create a task for each section of the document. Each task consists of reading the section, understanding the content, reading the source code related to the section, doing a deep dive into the code to check any assiumption, and then updating the section based on what you learned from the code. If there are any discrepancies between the document and the code, update the document to reflect the current state of the code. If there are any sections that are outdated or no longer relevant, remove them from the document. Make sure to keep the document clear, concise, and easy to understand for yourself later on.
+
+After you are done with CLAUDE.md, adopt the same strategy to update README.md to reflect the current state of the project.
