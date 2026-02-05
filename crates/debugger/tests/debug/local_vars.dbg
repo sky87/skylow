@@ -1,0 +1,8 @@
+# Test local variable inspection
+break compute
+run
+# Print specific local variable
+print a
+# Print all locals (parameters and let bindings)
+info locals
+quit

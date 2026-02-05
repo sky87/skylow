@@ -122,12 +122,23 @@ pub struct MirParam {
     pub reg: Reg,
 }
 
+/// Local variable info for debugging
+#[derive(Debug, Clone, PartialEq)]
+pub struct MirLocal {
+    /// Variable name
+    pub name: String,
+    /// Register holding this variable
+    pub reg: Reg,
+}
+
 /// A compiled MIR function (test body or function body)
 #[derive(Debug, Clone)]
 pub struct MirFunction {
     pub name: String,
     /// Function parameters (mapped to registers)
     pub params: Vec<MirParam>,
+    /// Local variables (mapped to registers)
+    pub locals: Vec<MirLocal>,
     pub instructions: Vec<Inst>,
     pub next_reg: u32,
     /// Assertion info indexed by msg_id (0-based)
@@ -143,6 +154,7 @@ impl MirFunction {
         Self {
             name,
             params: Vec::new(),
+            locals: Vec::new(),
             instructions: Vec::new(),
             next_reg: 0,
             asserts: Vec::new(),
@@ -155,6 +167,7 @@ impl MirFunction {
         Self {
             name,
             params: Vec::new(),
+            locals: Vec::new(),
             instructions: Vec::new(),
             next_reg: 0,
             asserts: Vec::new(),

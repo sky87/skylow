@@ -1,0 +1,8 @@
+Breakpoint 1 at 0x400078
+Starting program: /tmp/skydbg_test/local_vars.skyl.elf
+0x400078
+a = 3 (0x3)
+a = 3 (0x3)
+b = 4 (0x4)
+x = 0 (0x0)
+y = 0 (0x0)

@@ -98,6 +98,11 @@ fn lower_stmt<'a>(func: &mut MirFunction, stmt: &'a Stmt<'a>, locals: &mut HashM
             let value = lower_expr(func, expr, locals);
             // Register the variable with the computed value's register
             locals.insert(*name, value);
+            // Track for debug info
+            func.locals.push(crate::MirLocal {
+                name: name.to_string(),
+                reg: value,
+            });
         }
     }
 }

@@ -7,6 +7,6 @@ pub mod lower;
 
 pub use ir::{
     AssertInfo, BinOp, CmpOp, FunctionDebugInfo, FunctionKind, Inst, InstKind, MirFunction,
-    MirParam, MirProgram, Reg, SourceSpan,
+    MirLocal, MirParam, MirProgram, Reg, SourceSpan,
 };
 pub use lower::lower_program;

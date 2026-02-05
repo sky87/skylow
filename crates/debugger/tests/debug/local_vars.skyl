@@ -1,0 +1,8 @@
+fn compute(a: I64, b: I64) -> I64:
+  let x = a + b
+  let y = x * 2
+  return y
+
+fn main() -> I64:
+  assert(compute(3, 4) == 14)
+  return 0

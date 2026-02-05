@@ -590,6 +590,17 @@ pub fn compile_program_binary_with_debug(program: &MirProgram, filename: &str) -
 
         let code_size = emit.len() as u32;
         builder.set_function_code_range(dbg_func_id, prologue_start as u32, code_size);
+
+        // Add local variable debug info
+        // Parameters are treated as locals for debugging (they live in registers too)
+        for param in &mir_func.params {
+            builder.add_local(dbg_func_id, &param.name, param.reg.0, 0, code_size);
+        }
+        // Add actual local variables
+        for local in &mir_func.locals {
+            builder.add_local(dbg_func_id, &local.name, local.reg.0, 0, code_size);
+        }
+
         builder.end_function();
 
         compiled_functions.push(CompiledBinaryFunction {

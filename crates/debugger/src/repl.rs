@@ -285,10 +285,39 @@ impl Session {
             "sp" => self.println(format!("sp = 0x{:x}", regs.sp)),
             "pc" => self.println(format!("pc = 0x{:x}", regs.pc)),
             "pstate" => self.println(format!("pstate = 0x{:x}", regs.pstate)),
-            _ => self.println(format!("Cannot evaluate: {}", expr)),
+            _ => {
+                // Try to find as local variable
+                if let Some(reg_num) = self.find_local_register(expr, regs.pc) {
+                    if reg_num < 31 {
+                        let value = regs.x[reg_num] as i64;
+                        self.println(format!("{} = {} (0x{:x})", expr, value, regs.x[reg_num]));
+                        return Ok(false);
+                    }
+                }
+                self.println(format!("Cannot evaluate: {}", expr));
+            }
         }
 
         Ok(false)
+    }
+
+    /// Find the register number for a local variable at the given PC
+    fn find_local_register(&self, name: &str, pc: u64) -> Option<usize> {
+        let debug_info = self.debug_info.as_ref()?;
+        let code_offset = pc.saturating_sub(self.code_base) as u32;
+
+        // Find the function containing this PC
+        let func_idx = debug_info.symbols.iter().position(|sym| {
+            code_offset >= sym.code_offset && code_offset < sym.code_offset + sym.code_size
+        })?;
+
+        // Find locals for this function
+        let func_locals = debug_info.locals.iter().find(|fl| fl.func_id == func_idx as u32)?;
+
+        // Find the variable by name
+        func_locals.locals.iter()
+            .find(|local| local.name == name)
+            .map(|local| local.register as usize)
     }
 
     fn cmd_backtrace(&mut self) -> Result<bool, String> {
@@ -341,7 +370,49 @@ impl Session {
                 if !self.target.is_running() {
                     return Err("Program is not running".to_string());
                 }
-                self.println("(local variable inspection not yet implemented)");
+                let regs = self.target.get_registers().map_err(|e| e.to_string())?;
+                let pc = regs.pc;
+
+                // Collect output lines to avoid borrow issues
+                let output: Vec<String> = if let Some(ref debug_info) = self.debug_info {
+                    let code_offset = pc.saturating_sub(self.code_base) as u32;
+
+                    // Find the function containing this PC
+                    let func_id = debug_info.symbols.iter().position(|sym| {
+                        code_offset >= sym.code_offset && code_offset < sym.code_offset + sym.code_size
+                    });
+
+                    if let Some(func_idx) = func_id {
+                        // Find locals for this function
+                        if let Some(func_locals) = debug_info.locals.iter().find(|fl| fl.func_id == func_idx as u32) {
+                            if func_locals.locals.is_empty() {
+                                vec!["No locals.".to_string()]
+                            } else {
+                                func_locals.locals.iter()
+                                    .filter_map(|local| {
+                                        let reg_num = local.register as usize;
+                                        if reg_num < 31 {
+                                            let value = regs.x[reg_num] as i64;
+                                            Some(format!("{} = {} (0x{:x})", local.name, value, regs.x[reg_num]))
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect()
+                            }
+                        } else {
+                            vec!["No locals.".to_string()]
+                        }
+                    } else {
+                        vec!["Cannot determine current function.".to_string()]
+                    }
+                } else {
+                    vec!["No debug info available.".to_string()]
+                };
+
+                for line in output {
+                    self.println(&line);
+                }
             }
             InfoKind::Registers => {
                 if !self.target.is_running() {
