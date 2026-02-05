@@ -1,0 +1,7 @@
+fn local_var_test(a: I64, b: I64) -> I64:
+  let c = a + b
+  let d = c * 2
+  return d
+
+fn main() -> I64:
+  return local_var_test(2, 3)

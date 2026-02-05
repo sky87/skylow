@@ -1,0 +1,19 @@
+Fn "local_var_test"(a: I64, b: I64) -> I64
+  Let(c)
+    BinOp(Add)
+      Var(a)
+      Var(b)
+  Let(d)
+    BinOp(Mul)
+      Var(c)
+      Int(2)
+  Return
+    Var(d)
+
+Test "local variable works"
+  Assert
+    Cmp(Eq)
+      Call(local_var_test)
+        Int(2)
+        Int(3)
+      Int(10)

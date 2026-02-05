@@ -9,18 +9,15 @@ fn test_driver_basic() {
     let arena = Bump::new();
     let driver = Driver::new(&arena);
 
+    // Only syntax declarations are valid at top-level
     let source = indoc! {"
         syntax num \\d+ : Expr
-        42
     "};
 
     let result = driver.process(source);
     assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
-    assert_eq!(result.nodes.len(), 1);
-
-    // Test formatting functions
-    let _ = syntax_node_to_string(result.nodes[0]);
-    let _ = format_node(result.nodes[0], 0);
+    // No nodes - syntax declarations don't produce output nodes
+    assert!(result.nodes.is_empty());
 }
 
 #[test]
@@ -51,12 +48,11 @@ fn test_driver_with_category() {
     let source = indoc! {"
         syntax_category Term
         syntax num \\d+ : Term
-        42
     "};
 
     let result = driver.process(source);
     assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
-    assert_eq!(result.nodes.len(), 1);
+    assert!(result.nodes.is_empty());
 }
 
 #[test]
@@ -66,12 +62,11 @@ fn test_driver_interpreter_basic() {
 
     let source = indoc! {"
         syntax num \\d+ : Expr
-        42
     "};
 
     let result = driver.process(source);
     assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
-    assert_eq!(result.nodes.len(), 1);
+    assert!(result.nodes.is_empty());
 }
 
 #[test]
@@ -92,4 +87,24 @@ fn test_driver_interpreter_error() {
     let source = "@@@@";
     let result = driver.process(source);
     assert!(!result.errors.is_empty());
+}
+
+#[test]
+fn test_driver_format_functions() {
+    // Test format functions with a node from baselang parsing
+    use baselang::parse_with_prelude;
+
+    let arena = Bump::new();
+    let source = indoc! {"
+        test simple:
+          assert(1 == 1)
+    "};
+
+    let result = parse_with_prelude(&arena, source);
+    assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
+    assert!(!result.nodes.is_empty());
+
+    // Test formatting functions
+    let _ = syntax_node_to_string(result.nodes[0]);
+    let _ = format_node(result.nodes[0], 0);
 }

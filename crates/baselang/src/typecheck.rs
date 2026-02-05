@@ -244,6 +244,11 @@ impl<'a> TypeChecker<'a> {
                     );
                 }
             }
+            StmtKind::Let { name, expr } => {
+                let ty = self.check_expr(expr);
+                // Register the variable with its inferred type
+                self.ctx.set_var_type((*name).to_string(), ty);
+            }
         }
     }
 

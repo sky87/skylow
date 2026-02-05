@@ -5,15 +5,55 @@
 # - Comparison operators
 # - Test infrastructure (assert, test declarations)
 # - Function declarations with parameters and return types
+#
+# =============================================================================
+# IMPLICIT WHITESPACE RULES
+# =============================================================================
+#
+# The parser distinguishes between LEXICAL and SYNTACTIC rules:
+#
+# LEXICAL RULES: Contain only literals, character sets ([a..z]), and character
+#   classes (\d, \w, \s). NO category references.
+#   - NO implicit whitespace is inserted between pattern elements
+#   - Characters are matched contiguously
+#   - Example: syntax int [0..9]+ : Expr
+#     Matches "123" but NOT "1 2 3"
+#
+# SYNTACTIC RULES: Contain at least one category reference (like Expr, Name).
+#   - Implicit optional whitespace (WS*) is inserted BETWEEN pattern elements
+#   - Example: syntax add Expr "+" Expr : Expr
+#     Internally becomes: Expr WS* "+" WS* Expr
+#     Matches both "1+2" and "1 + 2"
+#
+# WHY THIS MATTERS:
+#   If you inline character sets in a syntactic rule (one with category refs):
+#     syntax fn "fn" [a..z_][a..zA..Z0..9_]* "(" Param ")" : Stmt
+#   This is syntactic (has Param ref), so it becomes:
+#     "fn" WS* [a..z_] WS* (WS* [a..zA..Z0..9_])* WS* "(" WS* Param WS* ")"
+#   The * quantifier gets WS* prepended to each iteration, so "f o o" matches!
+#
+# THE SOLUTION - Use category indirection for lexical tokens:
+#   1. Declare a category: syntax_category Name
+#   2. Define a lexical rule: syntax name [a..z_][a..zA..Z0..9_]* : Name
+#   3. Reference the category: syntax var Name : Expr
+#
+#   Now "var" is syntactic (allows WS around the Name reference) but the
+#   Name itself is lexical (no WS between characters).
+#
+# =============================================================================
+
+# Name category for identifiers (lexical token - see docs above)
+syntax_category Name
+syntax name [a..z_][a..zA..Z0..9_]* : Name
 
 # Integer literals
 syntax int [0..9]+ : Expr
 
-# Identifiers (variables)
-syntax var [a..z_][a..zA..Z0..9_]* : Expr
+# Identifiers (variables) - uses Name category
+syntax var Name : Expr
 
-# Function calls: name(arg, ...)
-syntax call [a..z_][a..zA..Z0..9_]* "(" (Expr ("," Expr)*)? ")" : Expr
+# Function calls: name(arg, ...) - uses Name category
+syntax call Name "(" (Expr ("," Expr)*)? ")" : Expr
 
 # Arithmetic operators (precedence 10 for add/sub, 20 for mul/div)
 syntax add Expr "+"@10 Expr@10 : Expr
@@ -37,6 +77,7 @@ syntax_category Stmt
 
 syntax assert "assert" "(" Expr ")" : Stmt
 syntax return "return" Expr : Stmt
+syntax let "let" Name "=" Expr : Stmt
 syntax test |> "test" [^\n:]+ ":" >> Stmt+ : Stmt
 
 # Type annotations category
@@ -47,8 +88,8 @@ syntax typeI64 "I64" : Type
 # Function parameter syntax (name: Type)
 syntax_category Param
 
-syntax param [a..z_][a..zA..Z0..9_]* ":" Type : Param
+syntax param Name ":" Type : Param
 
 # Function declarations with parameters and return type
 # fn name(param, ...) -> ReturnType:
-syntax fn |> "fn" [a..z_][a..zA..Z0..9_]* "(" (Param ("," Param)*)? ")" "->" Type ":" >> Stmt+ : Stmt
+syntax fn |> "fn" Name "(" (Param ("," Param)*)? ")" "->" Type ":" >> Stmt+ : Stmt

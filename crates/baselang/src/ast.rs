@@ -121,6 +121,8 @@ pub enum StmtKind<'a> {
     Assert { expr: &'a Expr<'a> },
     /// Return statement: return expr
     Return { expr: &'a Expr<'a> },
+    /// Let binding: let name = expr
+    Let { name: &'a str, expr: &'a Expr<'a> },
 }
 
 /// Declaration AST node

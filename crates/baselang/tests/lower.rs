@@ -54,6 +54,9 @@ fn format_stmt(stmt: &baselang::Stmt, indent: usize) -> String {
         StmtKind::Return { expr } => {
             format!("{}Return\n{}", pad, format_expr(expr, indent + 1))
         }
+        StmtKind::Let { name, expr } => {
+            format!("{}Let({})\n{}", pad, name, format_expr(expr, indent + 1))
+        }
     }
 }
 
@@ -83,8 +86,8 @@ fn format_decl(decl: &baselang::Decl) -> String {
 
 /// Format a program for output
 fn format_program(program: &baselang::Program) -> String {
-    // Only format test declarations for backwards compatibility with existing test files
-    program.tests().map(format_decl).collect::<Vec<_>>().join("\n\n")
+    // Format all declarations (functions and tests)
+    program.decls.iter().map(format_decl).collect::<Vec<_>>().join("\n\n")
 }
 
 fn run_test(path: &Path) -> datatest_stable::Result<()> {

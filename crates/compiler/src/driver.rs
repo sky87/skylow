@@ -3,12 +3,10 @@
 use bumpalo::Bump;
 use common::SourceModule;
 
-use parser::constants::{
-    CAT_EXPR, CAT_IDENT, CAT_SYNTAX_DECL, RULE_SYNTAX_CATEGORY, RULE_SYNTAX_DECL,
-};
+use parser::constants::{CAT_SYNTAX_DECL, RULE_SYNTAX_CATEGORY, RULE_SYNTAX_DECL};
 use parser::{
-    add_expr_rule, add_syntax_decl_command_rule, extract_and_register_rule,
-    get_child_by_category, get_node_text, init_syntaxlang, InterpretedParser, ParseError, Parser,
+    add_syntax_decl_command_rule, extract_and_register_rule,
+    get_child_by_category, init_syntaxlang, InterpretedParser, ParseError, Parser,
     SyntaxNode, VMParser,
 };
 
@@ -58,7 +56,7 @@ impl<'a> Driver<'a> {
     ) -> ParseResult<'a> {
         let source = module.text;
         init_syntaxlang(self.arena, parser);
-        add_expr_rule(self.arena, parser, CAT_EXPR);
+        // Note: We do NOT add Expr as a top-level command - only Stmt is valid at top-level
         add_syntax_decl_command_rule(self.arena, parser);
 
         let mut nodes = Vec::new();
@@ -71,10 +69,8 @@ impl<'a> Driver<'a> {
                         let syntax_decl = get_child_by_category(cmd_node, CAT_SYNTAX_DECL)
                             .expect("syntaxDecl command must have SyntaxDecl child");
                         if syntax_decl.rule == RULE_SYNTAX_CATEGORY {
-                            if let Some(name_node) = get_child_by_category(syntax_decl, CAT_IDENT) {
-                                let category_name = get_node_text(name_node, source);
-                                add_expr_rule(self.arena, parser, category_name);
-                            }
+                            // Categories are registered but NOT added as top-level commands
+                            // Only syntax declarations are valid at top-level
                         } else {
                             extract_and_register_rule(self.arena, parser, syntax_decl, source);
                         }

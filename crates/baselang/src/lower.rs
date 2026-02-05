@@ -91,13 +91,13 @@ impl<'a> Lowerer<'a> {
     }
 
     fn lower_fn(&self, node: &SyntaxNode<'a>) -> Result<Decl<'a>, LowerError> {
-        // Function node structure: fn |> "fn" name "(" params ")" "->" Type ":" >> Stmt+
-        // The name is captured by the character class patterns
+        // Function node structure: fn |> "fn" Name "(" params ")" "->" Type ":" >> Stmt+
+        // The name is in a Name category child
 
-        let mut name_chars = Vec::new();
         let mut params = Vec::new();
         let mut body = Vec::new();
         let mut return_type = Type::I64; // Default return type
+        let mut name = "";
 
         for child in node.children {
             if child.category == "Stmt" {
@@ -106,17 +106,11 @@ impl<'a> Lowerer<'a> {
                 params.push(self.lower_param(child)?);
             } else if child.category == "Type" {
                 return_type = self.lower_type(child)?;
-            } else if child.rule == "_charset" && child.category == "_char" {
-                // Character set captures individual chars for the function name
-                if let Some(text) = child.text {
-                    name_chars.push(text);
-                }
+            } else if child.category == "Name" {
+                // Extract function name from Name node
+                name = self.extract_identifier_name_from(child);
             }
         }
-
-        // Concatenate and trim, then allocate in arena
-        let name_string: String = name_chars.concat();
-        let name = self.arena.alloc_str(name_string.trim());
 
         // Capture source info for the function declaration
         let (start_offset, line, col, end) = get_full_span(node);
@@ -136,22 +130,17 @@ impl<'a> Lowerer<'a> {
     }
 
     fn lower_param(&self, node: &SyntaxNode<'a>) -> Result<FnParam<'a>, LowerError> {
-        // Param node structure: param name ":" Type
-        let mut name_chars = Vec::new();
+        // Param node structure: param Name ":" Type
         let mut param_type = Type::I64;
+        let mut name = "";
 
         for child in node.children {
             if child.category == "Type" {
                 param_type = self.lower_type(child)?;
-            } else if child.rule == "_charset" && child.category == "_char" {
-                if let Some(text) = child.text {
-                    name_chars.push(text);
-                }
+            } else if child.category == "Name" {
+                name = self.extract_identifier_name_from(child);
             }
         }
-
-        let name_string: String = name_chars.concat();
-        let name = self.arena.alloc_str(name_string.trim());
 
         let (start_offset, line, col, end) = get_full_span(node);
         let start = SourceLoc::new(start_offset as u32, line, col);
@@ -217,6 +206,29 @@ impl<'a> Lowerer<'a> {
                 Ok(Stmt {
                     info,
                     kind: StmtKind::Return {
+                        expr: self.arena.alloc(expr),
+                    },
+                    id: new_node_id(),
+                })
+            }
+            "let" => {
+                // let "let" name "=" Expr
+                let name = self.extract_identifier_name(node);
+                let expr_node = find_child_by_category(node, "Expr").ok_or_else(|| LowerError {
+                    msg: "let missing expression".to_string(),
+                    line: node.start().line,
+                    col: node.start().col,
+                })?;
+                let expr = self.lower_expr(expr_node)?;
+
+                let (start_offset, line, col, end) = get_full_span(node);
+                let start = SourceLoc::new(start_offset as u32, line, col);
+                let info = SourceInfo::new(node.info.module, start, end as u32);
+
+                Ok(Stmt {
+                    info,
+                    kind: StmtKind::Let {
+                        name,
                         expr: self.arena.alloc(expr),
                     },
                     id: new_node_id(),
@@ -320,16 +332,34 @@ impl<'a> Lowerer<'a> {
         Ok(Expr { info, kind, id: new_node_id() })
     }
 
-    /// Extract identifier name from charset characters in a node
+    /// Extract identifier name from charset characters in a node.
+    /// Handles both direct _charset children and _charset nested in Name category nodes.
     fn extract_identifier_name(&self, node: &SyntaxNode<'a>) -> &'a str {
         let mut name_chars = Vec::new();
+        self.collect_charset_chars(node, &mut name_chars);
+        let name_string: String = name_chars.concat();
+        self.arena.alloc_str(name_string.trim())
+    }
+
+    /// Recursively collect _charset characters from a node tree.
+    /// This handles both direct _charset children and those nested in Name nodes.
+    fn collect_charset_chars(&self, node: &SyntaxNode<'a>, chars: &mut Vec<&'a str>) {
         for child in node.children {
             if child.rule == "_charset" && child.category == "_char" {
                 if let Some(text) = child.text {
-                    name_chars.push(text);
+                    chars.push(text);
                 }
+            } else if child.category == "Name" {
+                // Recurse into Name nodes to find charset characters
+                self.collect_charset_chars(child, chars);
             }
         }
+    }
+
+    /// Extract identifier name directly from a Name node.
+    fn extract_identifier_name_from(&self, node: &SyntaxNode<'a>) -> &'a str {
+        let mut name_chars = Vec::new();
+        self.collect_charset_chars(node, &mut name_chars);
         let name_string: String = name_chars.concat();
         self.arena.alloc_str(name_string.trim())
     }

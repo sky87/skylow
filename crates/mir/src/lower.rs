@@ -33,9 +33,9 @@ pub fn lower_program(program: &Program) -> MirProgram {
                     source_id: Some(decl.info.module.id.to_owned()),
                 };
                 // No parameters for tests
-                let locals = HashMap::new();
+                let mut locals = HashMap::new();
                 for stmt in *body {
-                    lower_stmt(&mut func, stmt, &locals);
+                    lower_stmt(&mut func, stmt, &mut locals);
                 }
                 func.emit(InstKind::Ret);
                 mir.functions.push(func);
@@ -60,7 +60,7 @@ pub fn lower_program(program: &Program) -> MirProgram {
                 }
 
                 for stmt in *body {
-                    lower_stmt(&mut func, stmt, &locals);
+                    lower_stmt(&mut func, stmt, &mut locals);
                 }
                 // If there's no explicit return, emit Ret (for functions that don't return)
                 // In practice, functions should have a return statement
@@ -75,7 +75,7 @@ pub fn lower_program(program: &Program) -> MirProgram {
     mir
 }
 
-fn lower_stmt(func: &mut MirFunction, stmt: &Stmt, locals: &HashMap<&str, Reg>) {
+fn lower_stmt<'a>(func: &mut MirFunction, stmt: &'a Stmt<'a>, locals: &mut HashMap<&'a str, Reg>) {
     match &stmt.kind {
         StmtKind::Assert { expr } => {
             let cond = lower_expr(func, expr, locals);
@@ -93,10 +93,16 @@ fn lower_stmt(func: &mut MirFunction, stmt: &Stmt, locals: &HashMap<&str, Reg>) 
             let span = to_source_span(&stmt.info);
             func.emit_with_span(InstKind::RetVal { value }, span);
         }
+        StmtKind::Let { name, expr } => {
+            // Lower the expression and assign to a new register
+            let value = lower_expr(func, expr, locals);
+            // Register the variable with the computed value's register
+            locals.insert(*name, value);
+        }
     }
 }
 
-fn lower_expr(func: &mut MirFunction, expr: &Expr, locals: &HashMap<&str, Reg>) -> Reg {
+fn lower_expr<'a>(func: &mut MirFunction, expr: &'a Expr<'a>, locals: &HashMap<&'a str, Reg>) -> Reg {
     let span = to_source_span(&expr.info);
     match &expr.kind {
         ExprKind::Int(value) => {

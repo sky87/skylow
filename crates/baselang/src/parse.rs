@@ -5,7 +5,7 @@
 
 use bumpalo::Bump;
 use common::SourceModule;
-use parser::constants::{CAT_EXPR, CAT_IDENT, CAT_SYNTAX_DECL, RULE_SYNTAX_CATEGORY, RULE_SYNTAX_DECL};
+use parser::constants::{CAT_IDENT, CAT_SYNTAX_DECL, RULE_SYNTAX_CATEGORY, RULE_SYNTAX_DECL};
 use parser::{
     add_expr_rule, add_syntax_decl_command_rule, extract_and_register_rule,
     get_child_by_category, get_node_text, init_syntaxlang, ParseError, Parser, SyntaxNode,
@@ -47,7 +47,7 @@ pub fn parse_with_prelude_named<'a>(arena: &'a Bump, source: &str, source_name: 
     let mut parser = VMParser::new(arena, prelude_module);
 
     init_syntaxlang(arena, &mut parser);
-    add_expr_rule(arena, &mut parser, CAT_EXPR);
+    // Note: We do NOT add Expr as a top-level command - only declarations are valid
     add_syntax_decl_command_rule(arena, &mut parser);
 
     // Parse prelude (syntax declarations)
@@ -58,9 +58,13 @@ pub fn parse_with_prelude_named<'a>(arena: &'a Bump, source: &str, source_name: 
                     let syntax_decl = get_child_by_category(cmd_node, CAT_SYNTAX_DECL)
                         .expect("syntaxDecl command must have SyntaxDecl child");
                     if syntax_decl.rule == RULE_SYNTAX_CATEGORY {
+                        // Only make Stmt a top-level command; other categories like
+                        // Name, Type, Param are NOT valid at top level
                         if let Some(name_node) = get_child_by_category(syntax_decl, CAT_IDENT) {
                             let category_name = get_node_text(name_node, PRELUDE);
-                            add_expr_rule(arena, &mut parser, category_name);
+                            if category_name == "Stmt" {
+                                add_expr_rule(arena, &mut parser, category_name);
+                            }
                         }
                     } else {
                         extract_and_register_rule(arena, &mut parser, syntax_decl, PRELUDE);
@@ -94,9 +98,12 @@ pub fn parse_with_prelude_named<'a>(arena: &'a Bump, source: &str, source_name: 
                     let syntax_decl = get_child_by_category(cmd_node, CAT_SYNTAX_DECL)
                         .expect("syntaxDecl command must have SyntaxDecl child");
                     if syntax_decl.rule == RULE_SYNTAX_CATEGORY {
+                        // Only make Stmt a top-level command
                         if let Some(name_node) = get_child_by_category(syntax_decl, CAT_IDENT) {
                             let category_name = get_node_text(name_node, user_source);
-                            add_expr_rule(arena, &mut parser, category_name);
+                            if category_name == "Stmt" {
+                                add_expr_rule(arena, &mut parser, category_name);
+                            }
                         }
                     } else {
                         extract_and_register_rule(arena, &mut parser, syntax_decl, user_source);
